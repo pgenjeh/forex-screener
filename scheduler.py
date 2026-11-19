@@ -4,7 +4,7 @@ Scheduler Pip Forex Screener — tanpa library tambahan (stdlib saja).
 Jalan terus di background, jalankan screener tiap interval saat market buka.
 
 Jadwal (WIB, Senin-Jumat):
-  - Setiap 30 menit, 07:00-23:00  -> screener daily+H1
+  - Setiap 30 menit, 07:00-23:00  -> screener Top-Down (W/D/H4/H1/M15 + SnR)
   - Setiap Senin 07:05            -> ringkasan mingguan (sama, tapi log ditandai)
   - Di luar jam / weekend         -> tidur, cek tiap 10 menit
 

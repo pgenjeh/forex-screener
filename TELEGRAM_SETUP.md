@@ -75,3 +75,23 @@ lewat `run_services.py` (Procfile / `railway.json` / `Dockerfile` sudah diarahka
 ke sana). Kalau Railway sudah deploy dari repo ini, redeploy otomatis saat
 push — tidak perlu ubah apa-apa di dashboard selain memastikan Variables
 (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) sudah terisi.
+
+## Teknik di dalam pesan: Top-Down + SnR
+
+Pesan Telegram sekarang diawali blok **📐 Top-Down & SnR**:
+
+```
+🥇 XAUUSD 🔴 Bearish (5/5) • W▼ D▼ H4▼ H1▼ M15▼
+   S 3,353.4 (-8.8%, 1x) / 3,305.87 (-10.0%, 3x) • R 3,894.0 (+6.0%, 1x H4) — mid-range
+```
+
+- `W▼ D▼ H4▼ H1▼ M15▼` = arah tiap timeframe (▲ bullish, ▼ bearish, • netral).
+- `(5/5)` = berapa TF yang selaras searah bias.
+- `S` / `R` = 2 level terdekat, jarak dalam %, dan jumlah pengujian level
+  (`3x` = level itu sudah 3x diuji — makin sering diuji, makin kuat).
+  Tanda `H4` = level dari timeframe H4 (dipakai kalau level Daily terlalu jauh).
+- Status `di Support` / `di Resistance` = harga sedang menempel level
+  (≤0.5 ATR) — zona pantau bounce atau breakout.
+
+Perintah baru di bot: `/snr` — S/R 6 simbol utama (XAU, XAG, EURUSD,
+GBPUSD, USDJPY, DXY). `/cek` sekarang mengirim Top-Down lengkap.

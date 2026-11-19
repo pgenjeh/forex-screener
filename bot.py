@@ -7,9 +7,10 @@ getUpdates) dan membalas perintah dari kamu. Jadi kapan pun mau cek market,
 tinggal chat bot-nya, nggak perlu buka Muse atau nunggu jam 07:00 / 19:30.
 
 Perintah:
-  /cek     -> screener lengkap (semua simbol, Daily)
+  /cek     -> Top-Down lengkap (semua simbol, W/D/H4/H1/M15 + SnR)
   /xau     -> emas & perak saja (XAUUSD, XAGUSD)
   /majors  -> EURUSD, GBPUSD, USDJPY, DXY
+  /snr     -> S/R 6 simbol utama (XAU, XAG, EURUSD, GBPUSD, USDJPY, DXY)
   /help    -> daftar perintah
   /start   -> salam + daftar perintah
 
@@ -50,19 +51,23 @@ COOLDOWN_SEC = 60  # jeda minimum antar run screener (biar nggak spam Yahoo)
 HELP_TEXT = (
     "👋 <b>Pip Forex Screener</b>\n\n"
     "Chat aku kapan saja:\n"
-    "  /cek — screener lengkap (semua simbol)\n"
+    "  /cek — Top-Down lengkap (semua simbol)\n"
     "  /xau — emas &amp; perak (XAUUSD, XAGUSD)\n"
     "  /majors — EURUSD, GBPUSD, USDJPY, DXY\n"
+    "  /snr — S/R 6 simbol utama\n"
     "  /help — daftar perintah ini\n\n"
+    "Teknik: Top-Down W/D/H4/H1/M15, eksekusi di S/R — tunggu konfirmasi\n"
+    "H1/M15 dekat level sebelum masuk.\n\n"
     "Jadwal otomatis tetap jalan tiap 07:00 &amp; 19:30 WIB. "
     "Bukan saran trading — oversold ≠ sinyal buy."
 )
 
-# perintah -> argumen screener.py
+# perintah -> argumen screener.py (default timeframe = topdown)
 COMMANDS = {
-    "/cek": ["--timeframe", "1d"],
-    "/xau": ["--symbols", "XAUUSD", "XAGUSD", "--timeframe", "1d"],
-    "/majors": ["--symbols", "EURUSD", "GBPUSD", "USDJPY", "DXY", "--timeframe", "1d"],
+    "/cek": [],
+    "/xau": ["--symbols", "XAUUSD", "XAGUSD"],
+    "/majors": ["--symbols", "EURUSD", "GBPUSD", "USDJPY", "DXY"],
+    "/snr": ["--symbols", "XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "DXY"],
 }
 
 _last_run = 0.0
@@ -170,7 +175,7 @@ def main():
               file=sys.stderr)
         print("Cara dapatnya: lihat TELEGRAM_SETUP.md", file=sys.stderr)
         sys.exit(2)
-    log("Bot mulai mendengarkan… (perintah: /cek /xau /majors /help)")
+    log("Bot mulai mendengarkan… (perintah: /cek /xau /majors /snr /help)")
     offset = None
     # Lewati pesan lama yang menumpuk sebelum bot nyala, biar tidak dibalas semua.
     try:

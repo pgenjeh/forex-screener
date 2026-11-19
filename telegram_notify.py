@@ -88,9 +88,47 @@ def send_file(path, caption="", token=None, chat_id=None):
     return True
 
 
-def build_message(all_rows, now_str):
-    """Bangun pesan ringkas dari hasil screener (dict Daily/H1 -> rows)."""
+KEY_SYMBOLS = ["XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "DXY"]
+
+
+def _td_line(td):
+    """Satu baris Top-Down + SnR untuk satu simbol, misal:
+    🥇 <b>XAUUSD</b> 🔴 Bearish (4/5) • W▼ D▼ H4▼ H1• M15▼
+       S 3,642.10 (-1.0%) • R 3,751.10 (+1.9%) — di Support"""
+    bias = td["bias"]
+    emoji = "🟢" if bias == "Bullish" else ("🔴" if bias == "Bearish" else "⚪")
+    medal = {"XAUUSD": "🥇", "XAGUSD": "🥈"}.get(td["symbol"], "▫️")
+    short = {"Weekly": "W", "Daily": "D", "H4": "H4", "H1": "H1", "M15": "M15"}
+    arrows = " ".join(f"{short[tf]}{td['tfs'].get(tf, {}).get('arrow', '?')}"
+                      for tf in ["Weekly", "Daily", "H4", "H1", "M15"])
+    snr = td.get("snr") or {}
+
+    def _fmt(levels):
+        if not levels:
+            return "-"
+        parts = []
+        for c in levels:
+            tag = " H4" if c.get("tf") == "H4" else ""
+            parts.append(f"{c['price']:,} ({c['dist_pct']:+.1f}%, {c['touches']}x{tag})")
+        return " / ".join(parts)
+    sup, res = _fmt(snr.get("support")), _fmt(snr.get("resistance"))
+    status = snr.get("status", "-")
+    return (f"{medal} <b>{td['symbol']}</b> {emoji} {bias} ({td['aligned']}) • {arrows}\n"
+            f"   S {sup} • R {res} — {status}")
+
+
+def build_message(all_rows, now_str, topdown=None):
+    """Bangun pesan ringkas dari hasil screener (dict Daily/H1 -> rows),
+    plus blok Top-Down & SnR kalau data topdown tersedia."""
     lines = [f"<b>📊 Forex Screener — {now_str}</b>", ""]
+    if topdown:
+        lines.append("<b>📐 Top-Down &amp; SnR</b> (W/D/H4/H1/M15)")
+        for sym in KEY_SYMBOLS:
+            td = topdown.get(sym)
+            if td:
+                lines.append(_td_line(td))
+        lines.append("Eksekusi: tunggu konfirmasi H1/M15 di dekat level S/R.")
+        lines.append("")
     daily = all_rows.get("Daily") or []
     if daily:
         # Sorot XAU / XAG dulu
@@ -149,7 +187,8 @@ def main():
     latest = BASE / "output" / "latest.json"
     if latest.exists():
         data = json.loads(latest.read_text())
-        msg = build_message(data.get("data", {}), data.get("generated_wib", ""))
+        msg = build_message(data.get("data", {}), data.get("generated_wib", ""),
+                            data.get("topdown"))
         ok = send_text(msg, token, chat_id)
         sys.exit(0 if ok else 1)
     print("Tidak ada output/latest.json — jalankan screener.py dulu.", file=sys.stderr)

@@ -92,3 +92,24 @@ Selain update otomatis 07:00 & 19:30 WIB, chat bot-nya kapan saja:
 - `/help` — daftar perintah
 
 Bot hanya menjawab chat id di `TELEGRAM_CHAT_ID`. Detail di `TELEGRAM_SETUP.md`.
+
+## Teknik: Top-Down + Support & Resistance
+
+Sesuai gaya Abyan — screener ini bukan cuma RSI/EMA per timeframe:
+
+- **Top-Down (Multi-Timeframe):** bias dibaca dari Weekly → Daily → H4 →
+  H1 → M15. TF besar menentukan arah, TF kecil menentukan timing. Skor
+  tertimbang: W 30%, D 30%, H4 20%, H1 10%, M15 10%. "Selaras 5/5" artinya
+  semua TF searah.
+- **Support & Resistance:** level S/R dari swing high/low (pivot) Daily
+  (histori 5 tahun) yang di-cluster jadi zona, lengkap dengan jumlah
+  pengujian (touches) dan jarak harga dalam % dan ATR. Kalau level Daily
+  terlalu jauh, level H4 terdekat ditampilkan sebagai pelengkap (tanda H4).
+- **Status posisi harga:** `di Support` / `di Resistance` (jarak ≤0.5 ATR),
+  `mid-range`, atau `tanpa Support/Resistance dekat`.
+- **Eksekusi:** searah bias Top-Down, tunggu konfirmasi di H1/M15 dekat
+  level S/R sebelum masuk. Bukan saran trading.
+
+Hasilnya ada di tabel `Top-Down & SnR` (console, `latest.md`, JSON
+`topdown`) dan di pesan Telegram. Di bot Telegram: `/snr` untuk S/R
+6 simbol utama, `/cek` untuk Top-Down lengkap.
