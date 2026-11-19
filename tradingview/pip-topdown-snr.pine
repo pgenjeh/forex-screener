@@ -1,29 +1,29 @@
 //@version=6
 // =============================================================================
-//  Pip Top-Down + SnR — indikator TradingView (Pine Script v6)
+//  Pip Top-Down + SnR - indikator TradingView (Pine Script v6)
 //  Logika SAMA dengan bot Telegram Pip Forex Screener (repo pgenjeh/forex-screener):
-//    • Top-Down multi-timeframe: Weekly → Daily → H4 → H1 → M15
+//    * Top-Down multi-timeframe: Weekly -> Daily -> H4 -> H1 -> M15
 //      Skor per TF: harga vs EMA20/50/200, RSI14, momentum 5 bar,
 //      posisi dalam range 20 bar. Bobot: W 30%, D 30%, H4 20%, H1 10%, M15 10%.
-//    • Support & Resistance: swing high/low Daily (pivot 5 bar) yang
-//      di-cluster jadi zona (toleransi 0.5 × ATR Daily). Touches = jumlah
+//    * Support & Resistance: swing high/low Daily (pivot 5 bar) yang
+//      di-cluster jadi zona (toleransi 0.5 x ATR Daily). Touches = jumlah
 //      pengujian level. Garis digambar untuk 2 Support + 2 Resistance terdekat.
-//    • Eksekusi: searah bias Top-Down, tunggu konfirmasi H1/M15 di dekat level.
+//    * Eksekusi: searah bias Top-Down, tunggu konfirmasi H1/M15 di dekat level.
 //
-//  CARA PASANG: TradingView → Pine Editor → New → paste file ini → "Add to chart"
+//  CARA PASANG: TradingView -> Pine Editor -> New -> paste file ini -> "Add to chart"
 //  CHART YANG DISARANKAN: M15 (supaya semua 5 TF kebaca). Di chart H1, M15
-//  tampil "–"; di chart Daily, H4/H1/M15 tampil "–" (Pine tidak bisa ambil
+//  tampil "-"; di chart Daily, H4/H1/M15 tampil "-" (Pine tidak bisa ambil
 //  timeframe yang LEBIH RENDAH dari timeframe chart). Bobot dihitung ulang
 //  otomatis dari TF yang tersedia.
 //  CATATAN: level pivot Daily baru terkonfirmasi 5 bar Daily setelah terbentuk
-//  (delay wajar). lookahead dimatikan → tidak repaint pada data terkonfirmasi.
+//  (delay wajar). lookahead dimatikan -> tidak repaint pada data terkonfirmasi.
 // =============================================================================
 indicator("Pip Top-Down + SnR", shorttitle="Pip TD-SnR", overlay=true,
      max_lines_count=500, max_labels_count=500, max_bars_back=1000)
 
 // ---------------------------------------------------------------- inputs
 pivotBars  = input.int(5, "Pivot kiri/kanan (bar Daily)", minval=1, maxval=20)
-atrMult    = input.float(0.5, "Toleransi cluster level (× ATR Daily)", minval=0.1, maxval=2.0, step=0.1)
+atrMult    = input.float(0.5, "Toleransi cluster level (x ATR Daily)", minval=0.1, maxval=2.0, step=0.1)
 maxLevels  = input.int(10, "Maks level S/R disimpan", minval=2, maxval=30)
 showTable  = input.bool(true, "Tampilkan tabel Top-Down")
 showSR     = input.bool(true, "Gambar garis S/R di chart")
@@ -48,9 +48,9 @@ f_score() =>
     s += math.max(-10, math.min(10, (pos20 - 50) * 0.2))
     math.max(-100, math.min(100, s))
 
-f_arrow(v) => na(v) ? "–" : v >= 25 ? "▲" : v <= -25 ? "▼" : "•"
+f_arrow(v) => na(v) ? "-" : v >= 25 ? "^" : v <= -25 ? "v" : "*"
 
-f_txt(v, fmt) => na(v) ? "–" : str.tostring(v, fmt)
+f_txt(v, fmt) => na(v) ? "-" : str.tostring(v, fmt)
 
 f_col(v) => na(v) ? color.gray : v >= 25 ? color.green : v <= -25 ? color.red : color.gray
 
@@ -234,7 +234,7 @@ f_cell(int col, int row, string txt, color bg) =>
     table.cell(td, col, row, txt, text_color=color.white, bgcolor=bg, text_size=size.small)
 
 if barstate.islast and showTable
-    table.cell(td, 0, 0, "PIP TOP-DOWN + SnR • " + syminfo.ticker, text_color=color.white,
+    table.cell(td, 0, 0, "PIP TOP-DOWN + SnR * " + syminfo.ticker, text_color=color.white,
          bgcolor=color.new(color.blue, 0), text_size=size.small)
     table.merge_cells(td, 0, 0, 3, 0)
     table.cell(td, 0, 1, "TF", text_color=color.white, bgcolor=color.new(color.gray, 0), text_size=size.small)
@@ -261,11 +261,11 @@ if barstate.islast and showTable
     f_cell(1, 6, f_arrow(sM15), f_col(sM15))
     f_cell(2, 6, f_txt(sM15, "#"), f_col(sM15))
     f_cell(3, 6, f_txt(rsiM15, "#.#"), color.new(color.gray, 70))
-    table.cell(td, 0, 7, "Bias: " + bias + " (" + str.tostring(wScore) + ") • Selaras " + aligned,
+    table.cell(td, 0, 7, "Bias: " + bias + " (" + str.tostring(wScore) + ") * Selaras " + aligned,
          text_color=color.white, bgcolor=f_col(wScore), text_size=size.small)
     table.merge_cells(td, 0, 7, 3, 7)
-    sTxt = "S: " + (na(s1) ? "–" : str.tostring(s1, format.mintick) + " (" + str.tostring(f_distPct(s1), "#.#") + "%, " + str.tostring(s1t) + "x)")
-    rTxt = "R: " + (na(r1) ? "–" : str.tostring(r1, format.mintick) + " (" + str.tostring(f_distPct(r1), "#.#") + "%, " + str.tostring(r1t) + "x)")
+    sTxt = "S: " + (na(s1) ? "-" : str.tostring(s1, format.mintick) + " (" + str.tostring(f_distPct(s1), "#.#") + "%, " + str.tostring(s1t) + "x)")
+    rTxt = "R: " + (na(r1) ? "-" : str.tostring(r1, format.mintick) + " (" + str.tostring(f_distPct(r1), "#.#") + "%, " + str.tostring(r1t) + "x)")
     table.cell(td, 0, 8, sTxt, text_color=color.white, bgcolor=color.new(color.green, 30), text_size=size.small)
     table.merge_cells(td, 0, 8, 3, 8)
     table.cell(td, 0, 9, rTxt, text_color=color.white, bgcolor=color.new(color.red, 30), text_size=size.small)
