@@ -113,3 +113,11 @@ Sesuai gaya Abyan — screener ini bukan cuma RSI/EMA per timeframe:
 Hasilnya ada di tabel `Top-Down & SnR` (console, `latest.md`, JSON
 `topdown`) dan di pesan Telegram. Di bot Telegram: `/snr` untuk S/R
 6 simbol utama, `/cek` untuk Top-Down lengkap.
+
+## TradingView — indikator Pine Script
+
+Ada versi indikatornya juga buat chart TradingView: `tradingview/pip-topdown-snr.pine`
+(Pine Script v6). Logikanya sama: tabel Top-Down 5 TF + garis S/R Daily + alert
+"di Support / di Resistance / bias berubah". Cara pasang: Pine Editor → paste →
+Add to chart. Pakai chart M15 supaya semua 5 TF kebaca. Detail di
+`tradingview/README.md`.
