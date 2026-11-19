@@ -14,7 +14,7 @@ nggak butuh web server, jadi pemakaian CPU-nya kecil.
 2. Di terminal:
    ```bash
    cd forex-screener
-   ./deploy_github.sh https://github.com/badasht/forex-screener.git
+   ./deploy_github.sh https://github.com/pgenjeh/forex-screener.git
    ```
    Ganti `badasht` dengan username GitHub kamu kalau beda.
 3. Cek di GitHub: file harus ada, dan **pastikan tidak ada `.env`** di repo.

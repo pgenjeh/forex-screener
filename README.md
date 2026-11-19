@@ -70,7 +70,7 @@ Lihat `TELEGRAM_SETUP.md` (cara bikin bot & dapat Chat ID).
 
 Biar jalan 24 jam dan notif masuk Telegram tanpa buka Muse.
 Lihat `DEPLOY.md` — ringkasnya:
-1. `./deploy_github.sh https://github.com/badasht/forex-screener.git`
+1. `./deploy_github.sh https://github.com/pgenjeh/forex-screener.git`
 2. Railway → New Project → Deploy from GitHub repo → service jadi **Worker**
 3. Isi Variables: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_TIMES=07:00,19:30`, `TZ=Asia/Jakarta`
 

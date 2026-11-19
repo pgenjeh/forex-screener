@@ -1,6 +1,6 @@
 #!/bin/bash
 # Push forex-screener ke GitHub — sekali jalan.
-# Pakai: ./deploy_github.sh https://github.com/badasht/forex-screener.git
+# Pakai: ./deploy_github.sh https://github.com/pgenjeh/forex-screener.git
 # Kalau repo belum dibuat di github.com, buat dulu (kosong, tanpa README),
 # lalu jalankan script ini. Butuh git + login GitHub (HTTPS token / SSH).
 set -e
@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 REMOTE="${1:-}"
 if [ -z "$REMOTE" ]; then
   echo "Pakai: ./deploy_github.sh <url-repo-github>"
-  echo "Contoh: ./deploy_github.sh https://github.com/badasht/forex-screener.git"
+  echo "Contoh: ./deploy_github.sh https://github.com/pgenjeh/forex-screener.git"
   exit 1
 fi
 
