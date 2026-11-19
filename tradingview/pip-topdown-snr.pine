@@ -268,7 +268,9 @@ if barstate.islast and showTable
 // ---------------------------------------------------------------- alerts
 nearSup = not na(s1) and not na(f_distAtr(s1)) and f_distAtr(s1) <= 0.5
 nearRes = not na(r1) and not na(f_distAtr(r1)) and f_distAtr(r1) <= 0.5
-alertcondition(nearSup, title="Pip: Harga di Support", message="Pip TD-SnR: {{ticker}} mendekati Support (<=0.5 ATR). Harga {{close}}.")
-alertcondition(nearRes, title="Pip: Harga di Resistance", message="Pip TD-SnR: {{ticker}} mendekati Resistance (<=0.5 ATR). Harga {{close}}.")
-alertcondition(bias == "Bullish" and bias[1] != "Bullish", title="Pip: Bias jadi Bullish", message="Pip TD-SnR: {{ticker}} bias Top-Down berubah jadi Bullish.")
-alertcondition(bias == "Bearish" and bias[1] != "Bearish", title="Pip: Bias jadi Bearish", message="Pip TD-SnR: {{ticker}} bias Top-Down berubah jadi Bearish.")
+// Alert hanya saat bar tutup (barstate.isconfirmed) supaya tidak berbunyi
+// berulang-ulang / berubah saat bar masih berjalan.
+alertcondition(nearSup and barstate.isconfirmed, title="Pip: Harga di Support", message="Pip TD-SnR: {{ticker}} mendekati Support (<=0.5 ATR). Harga {{close}}.")
+alertcondition(nearRes and barstate.isconfirmed, title="Pip: Harga di Resistance", message="Pip TD-SnR: {{ticker}} mendekati Resistance (<=0.5 ATR). Harga {{close}}.")
+alertcondition(bias == "Bullish" and bias[1] != "Bullish" and barstate.isconfirmed, title="Pip: Bias jadi Bullish", message="Pip TD-SnR: {{ticker}} bias Top-Down berubah jadi Bullish.")
+alertcondition(bias == "Bearish" and bias[1] != "Bearish" and barstate.isconfirmed, title="Pip: Bias jadi Bearish", message="Pip TD-SnR: {{ticker}} bias Top-Down berubah jadi Bearish.")
