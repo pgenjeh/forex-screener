@@ -81,3 +81,14 @@ Lihat `DEPLOY.md` — ringkasnya:
 - Bukan saran trading. Screener hanya filter: konfirmasi dengan struktur
   market, S/R, dan news (DXY, Fed, CPI) sebelum entry.
 - Yahoo kadang rate-limit kalau dipanggil terlalu sering — interval 30 menit aman.
+
+## Cek kapan saja lewat Telegram
+
+Selain update otomatis 07:00 & 19:30 WIB, chat bot-nya kapan saja:
+
+- `/cek` — screener lengkap (semua simbol)
+- `/xau` — emas & perak saja
+- `/majors` — EURUSD, GBPUSD, USDJPY, DXY
+- `/help` — daftar perintah
+
+Bot hanya menjawab chat id di `TELEGRAM_CHAT_ID`. Detail di `TELEGRAM_SETUP.md`.

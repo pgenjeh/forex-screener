@@ -54,3 +54,24 @@ Lihat `DEPLOY.md` untuk langkah Railway lengkap.
 - `.env` sudah masuk `.gitignore`, jadi nggak akan ke-push kalau kamu
   pakai `deploy_github.sh`.
 - Kalau token bocor: ke @BotFather → `/revoke` → ganti token di Railway.
+
+## Cek kapan saja (on-demand)
+
+Selain jadwal otomatis 07:00 & 19:30 WIB, bot juga menjawab perintah kapan saja.
+Caranya: buka chat bot di Telegram, kirim salah satu perintah ini:
+
+| Perintah  | Artinya |
+|-----------|---------|
+| `/cek`    | Screener lengkap (semua simbol, Daily) |
+| `/xau`    | Emas & perak saja (XAUUSD, XAGUSD) |
+| `/majors` | EURUSD, GBPUSD, USDJPY, DXY |
+| `/help`   | Daftar perintah |
+
+Bot hanya menjawab chat yang id-nya sama dengan `TELEGRAM_CHAT_ID` — orang lain
+yang chat bot ini akan diabaikan. Ada jeda 60 detik antar pengecekan (cooldown).
+
+Teknis: `bot.py` memakai long polling `getUpdates`, jalan bareng `scheduler.py`
+lewat `run_services.py` (Procfile / `railway.json` / `Dockerfile` sudah diarahkan
+ke sana). Kalau Railway sudah deploy dari repo ini, redeploy otomatis saat
+push — tidak perlu ubah apa-apa di dashboard selain memastikan Variables
+(`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) sudah terisi.

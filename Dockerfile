@@ -11,5 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Railway Worker service: tidak butuh PORT / web server.
-# scheduler.py jalan terus, scan tiap 30 mnt, kirim Telegram jam 07:00 & 19:30 WIB.
-CMD ["python", "scheduler.py"]
+# run_services.py jalan terus: scheduler (scan 30 mnt + Telegram 07:00 & 19:30 WIB)
+# + bot.py (jawab /cek /xau /majors kapan saja).
+CMD ["python", "run_services.py"]

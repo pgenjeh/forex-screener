@@ -1,1 +1,1 @@
-worker: python scheduler.py
+worker: python run_services.py
