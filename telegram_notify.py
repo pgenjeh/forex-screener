@@ -22,6 +22,24 @@ import requests
 BASE = Path(__file__).resolve().parent
 
 
+def _load_dotenv():
+    """Baca .env di folder screener (kalau ada) ke os.environ — tanpa library tambahan.
+    .env sudah di .gitignore, jadi token tidak akan ke-commit. Railway pakai Variables,
+    jadi .env di sana tidak dibutuhkan."""
+    env_file = BASE / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
+
 def get_config():
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
