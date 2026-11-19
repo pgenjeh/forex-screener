@@ -18,8 +18,7 @@
 //  CATATAN: level pivot Daily baru terkonfirmasi 5 bar Daily setelah terbentuk
 //  (delay wajar). lookahead dimatikan -> tidak repaint pada data terkonfirmasi.
 // =============================================================================
-indicator("Pip Top-Down + SnR", shorttitle="Pip TD-SnR", overlay=true,
-     max_lines_count=500, max_labels_count=500, max_bars_back=1000)
+indicator("Pip Top-Down + SnR", shorttitle="Pip TD-SnR", overlay=true, max_lines_count=500, max_labels_count=500, max_bars_back=1000)
 
 // ---------------------------------------------------------------- inputs
 pivotBars  = input.int(5, "Pivot kiri/kanan (bar Daily)", minval=1, maxval=20)
@@ -198,15 +197,10 @@ var label[] sLabels = array.new_label()
 
 f_drawLevel(line[] lines, label[] labels, float lv, int touches, color col, string tag) =>
     if not na(lv)
-        ln = line.new(bar_index, lv, bar_index + 1, lv, xloc=xloc.bar_index,
-             extend=extend.right, color=col, style=line.style_dashed, width=1)
+        ln = line.new(bar_index, lv, bar_index + 1, lv, xloc=xloc.bar_index, extend=extend.right, color=col, style=line.style_dashed, width=1)
         array.push(lines, ln)
-        lb = label.new(bar_index, lv,
-             tag + " " + str.tostring(lv, format.mintick) + " (" +
-             (lv > close ? "+" : "") + str.tostring((lv / close - 1) * 100, "#.#") +
-             "%, " + str.tostring(touches) + "x)",
-             xloc=xloc.bar_index, style=label.style_label_left,
-             color=color.new(col, 0), textcolor=color.white, size=size.small)
+        txt = tag + " " + str.tostring(lv, format.mintick) + " (" + (lv > close ? "+" : "") + str.tostring((lv / close - 1) * 100, "#.#") + "%, " + str.tostring(touches) + "x)"
+        lb = label.new(bar_index, lv, txt, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 0), textcolor=color.white, size=size.small)
         array.push(labels, lb)
 
 if barstate.islast and showSR
@@ -234,8 +228,7 @@ f_cell(int col, int row, string txt, color bg) =>
     table.cell(td, col, row, txt, text_color=color.white, bgcolor=bg, text_size=size.small)
 
 if barstate.islast and showTable
-    table.cell(td, 0, 0, "PIP TOP-DOWN + SnR * " + syminfo.ticker, text_color=color.white,
-         bgcolor=color.new(color.blue, 0), text_size=size.small)
+    table.cell(td, 0, 0, "PIP TOP-DOWN + SnR * " + syminfo.ticker, text_color=color.white, bgcolor=color.new(color.blue, 0), text_size=size.small)
     table.merge_cells(td, 0, 0, 3, 0)
     table.cell(td, 0, 1, "TF", text_color=color.white, bgcolor=color.new(color.gray, 0), text_size=size.small)
     table.cell(td, 1, 1, "Arah", text_color=color.white, bgcolor=color.new(color.gray, 0), text_size=size.small)
@@ -261,8 +254,7 @@ if barstate.islast and showTable
     f_cell(1, 6, f_arrow(sM15), f_col(sM15))
     f_cell(2, 6, f_txt(sM15, "#"), f_col(sM15))
     f_cell(3, 6, f_txt(rsiM15, "#.#"), color.new(color.gray, 70))
-    table.cell(td, 0, 7, "Bias: " + bias + " (" + str.tostring(wScore) + ") * Selaras " + aligned,
-         text_color=color.white, bgcolor=f_col(wScore), text_size=size.small)
+    table.cell(td, 0, 7, "Bias: " + bias + " (" + str.tostring(wScore) + ") * Selaras " + aligned, text_color=color.white, bgcolor=f_col(wScore), text_size=size.small)
     table.merge_cells(td, 0, 7, 3, 7)
     sTxt = "S: " + (na(s1) ? "-" : str.tostring(s1, format.mintick) + " (" + str.tostring(f_distPct(s1), "#.#") + "%, " + str.tostring(s1t) + "x)")
     rTxt = "R: " + (na(r1) ? "-" : str.tostring(r1, format.mintick) + " (" + str.tostring(f_distPct(r1), "#.#") + "%, " + str.tostring(r1t) + "x)")
