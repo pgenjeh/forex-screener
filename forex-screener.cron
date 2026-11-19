@@ -1,0 +1,22 @@
+# Pip Forex Screener — crontab (WIB)
+# Pasang dengan: ./install_cron.sh
+# Lihat dengan: crontab -l   |   Hapus dengan: crontab -r (hati-hati: hapus SEMUA cron)
+# Zona waktu cron: tambahkan TZ di tiap baris / di awal crontab.
+# Jam di bawah adalah WIB (Asia/Jakarta). Pastikan server/VPS TZ-nya Asia/Jakarta,
+# atau sesuaikan -7 jam kalau server pakai UTC (07:00 WIB = 00:00 UTC).
+
+TZ=Asia/Jakarta
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# --- Screener tiap 30 menit saat market buka (Senin-Jumat 07:00-23:00 WIB) ---
+*/30 7-22 * * 1-5 /home/hatch/workspace/forex-screener/run_screener.sh >> /home/hatch/workspace/forex-screener/logs/cron.log 2>&1
+
+# --- Ringkasan pagi: Senin-Jumat 07:00 WIB (sebelum London open) ---
+0 7 * * 1-5 /home/hatch/workspace/forex-screener/run_screener.sh --alert >> /home/hatch/workspace/forex-screener/logs/cron.log 2>&1
+
+# --- Ringkasan sore / US session: Senin-Jumat 19:30 WIB ---
+30 19 * * 1-5 /home/hatch/workspace/forex-screener/run_screener.sh >> /home/hatch/workspace/forex-screener/logs/cron.log 2>&1
+
+# --- Bersihkan output lama (>30 hari), tiap Minggu 23:00 WIB ---
+0 23 * * 0 find /home/hatch/workspace/forex-screener/output -type f -mtime +30 -delete

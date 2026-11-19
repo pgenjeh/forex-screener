@@ -1,0 +1,6 @@
+pandas>=2.0
+numpy>=1.24
+requests>=2.31
+# yfinance tidak wajib — screener pakai Yahoo Chart API langsung via requests.
+# Kalau mau pakai yfinance sebagai alternatif, uncomment:
+# yfinance>=0.2
