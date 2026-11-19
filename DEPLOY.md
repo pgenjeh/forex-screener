@@ -24,9 +24,12 @@ nggak butuh web server, jadi pemakaian CPU-nya kecil.
 1. Buka railway.app → **New Project → Deploy from GitHub repo**
    → pilih repo `forex-screener`.
 2. Railway otomatis baca `Dockerfile` + `railway.json`.
-3. **Penting — ubah service jadi Worker:**
-   Project → service → Settings → **Service Type: Worker**
-   (bukan Web — screener ini nggak buka port, kalau Web nanti dikira crash.)
+3. **Tidak perlu ubah tipe service / pasang domain:**
+   Service ini cuma jalanin `python run_services.py` (dari `railway.json`)
+   — dia proses yang jalan terus, bukan website. Jadi **jangan** generate
+   public domain dan **jangan** isi healthcheck path: worker ini tidak
+   membuka port sama sekali, dan health check ke port yang tidak ada akan
+   membuat deploy kelihatan gagal padahal worker-nya sehat.
    Kalau Railway sudah pakai `railway.json`, start command-nya
    sudah `python scheduler.py`.
 4. Isi Variables (Project → Variables → New Variable):
@@ -59,7 +62,7 @@ Kekurangan: cron job cuma kirim di jam itu, nggak ada scan 30 menitan.
 | Log: `Telegram skip: token/chat_id belum di-set` | Variables di Railway belum diisi / salah nama. Cek ejaan `TELEGRAM_BOT_TOKEN`. |
 | Log: `Telegram gagal (401)` | Token salah / sudah di-revoke. Buat ulang di @BotFather. |
 | Log: `Telegram gagal (400) chat not found` | Chat ID salah, atau kamu belum `/start` bot-nya. Buka bot, tap Start. |
-| Railway: service CrashLoop / "no port" | Service masih tipe Web. Ubah ke Worker (langkah 2.3). |
+| Railway: service CrashLoop / "no port" | Bukan soal port — worker ini memang tidak buka port. Cek Logs: biasanya Variables belum diisi (token) atau build gagal. Jangan pasang domain/healthcheck. |
 | Yahoo gagal / data kosong | Yahoo kadang rate-limit. Tunggu 10 menit, jalan lagi. Interval 30 menit aman. |
 | Pesan Telegram nggak masuk jam 07:00 | Cek `TELEGRAM_TIMES` dan TZ. Ingat: scheduler pakai WIB; Railway Cron pakai UTC. |
 
