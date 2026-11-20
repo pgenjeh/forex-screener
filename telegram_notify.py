@@ -161,6 +161,37 @@ def build_message(all_rows, now_str, topdown=None):
     return "\n".join(lines)
 
 
+def build_scalp_message(rows, sessions, now_str):
+    """Pesan ringkas mode scalping untuk Telegram."""
+    lines = [f"<b>⚡ Scalp Mode — {now_str}</b>",
+             f"Sesi aktif: {', '.join(sessions)} (WIB)", ""]
+    for r in sorted(rows, key=lambda x: x["score"], reverse=True):
+        snr = r.get("snr_m15") or {}
+        sup = (snr.get("support") or [{}])[0]
+        res = (snr.get("resistance") or [{}])[0]
+        sr = []
+        if sup.get("price") is not None:
+            sr.append(f"S {sup['price']:,} ({sup['dist_pct']:+.1f}%)")
+        if res.get("price") is not None:
+            sr.append(f"R {res['price']:,} ({res['dist_pct']:+.1f}%)")
+        lines.append(
+            f"{r['emoji']} <b>{r['symbol']}</b> {r['price']:,} • "
+            f"<b>{r['signal']}</b> (skor {r['score']:+d})"
+        )
+        lines.append(
+            f"   Trend M15 {r['trend_m15']} / H1 {r['trend_h1']} / D1 {r['trend_d1']} • "
+            f"Stoch M5 {r['stoch_k']}/{r['stoch_d']} • RSI M5 {r['rsi_m5']}"
+        )
+        lines.append(
+            f"   SL {r['sl']:,} ({r['sl_pips']} pip) • TP1 {r['tp1']:,} • TP2 {r['tp2']:,}"
+        )
+        if sr:
+            lines.append(f"   S/R M15: {' • '.join(sr)}")
+    lines.append("")
+    lines.append("Trigger: cross Stochastic di M5, trend M15/H1/D1 searah. Bukan saran trading.")
+    return "\n".join(lines)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()

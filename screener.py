@@ -11,6 +11,8 @@ Cara pakai:
   python3 screener.py --timeframe 1d  # hanya daily
   python3 screener.py --timeframe 1h  # hanya H1
   python3 screener.py --timeframe both  # daily + H1 (lama)
+  python3 screener.py --mode scalping # mode scalping: M1/M5/M15 + H1/D1, Stochastic + MA
+  python3 screener.py --mode scalping --symbols XAUUSD
   python3 screener.py --out md        # output markdown saja
   python3 screener.py --alert         # cetak hanya sinyal kuat / RSI ekstrem
   python3 screener.py --telegram      # + kirim ringkasan ke Telegram
@@ -24,6 +26,13 @@ Teknik (sesuai gaya Abyan):
   Eksekusi pakai Support & Resistance: level S/R dihitung dari swing
   high/low (pivot) Daily (+ H4) yang sudah diuji >= 1x; harga yang dekat
   level (<=0.5 ATR) = zona pantau breakout / bounce.
+
+  Mode scalping (sesuai setup MT5 Abyan): trigger Stochastic (14,3,3) cross
+  di M5, filter trend M15/H1/D1 searah (MA 9/21/50/200 + EMA 20/50),
+  konfirmasi RSI14 + Stochastic M1, SL 0.5 ATR / TP1 1 ATR / TP2 2 ATR
+  (ATR M15), S/R dari pivot M15, plus sesi market yang sedang buka
+  (Sydney/Tokyo/London/New York, jam WIB). On-demand saja — sinyal M1/M5
+  cepat basi, jadi tidak dijadwalkan. Telegram: /scalp di bot.
 
 Output:
   output/screener_YYYY-MM-DD_HHMM-WIB.csv
@@ -77,6 +86,32 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Pip-Forex-Screener/1.0
 # ---------------------------------------------------------------- helpers
 def ema(series, n):
     return series.ewm(span=n, adjust=False).mean()
+
+def sma(series, n):
+    return series.rolling(n).mean()
+
+def stochastic(df, k_period=14, k_smooth=3, d_smooth=3):
+    """Stochastic (14,3,3) ala MT5: return (K, D) series."""
+    low_n = df["low"].rolling(k_period).min()
+    high_n = df["high"].rolling(k_period).max()
+    raw_k = 100 * (df["close"] - low_n) / (high_n - low_n).replace(0, np.nan)
+    k = raw_k.rolling(k_smooth).mean()
+    d = k.rolling(d_smooth).mean()
+    return k, d
+
+def current_sessions(now_wib):
+    """Sesi market yang sedang buka (jam WIB, perkiraan jam standar)."""
+    h = now_wib.hour + now_wib.minute / 60
+    sessions = []
+    if 5 <= h < 13:
+        sessions.append("Sydney")
+    if 7 <= h < 15:
+        sessions.append("Tokyo")
+    if 15 <= h < 23:
+        sessions.append("London")
+    if h >= 21 or h < 4:
+        sessions.append("New York")
+    return sessions or ["—"]
 
 def rsi(series, n=14):
     delta = series.diff()
@@ -319,10 +354,231 @@ def print_topdown(topdown, now_wib):
         print(f"{sym:<8} {arrows['Weekly']:>2} {arrows['Daily']:>2} {arrows['H4']:>2} {arrows['H1']:>2} {arrows['M15']:>3}  {td['bias']:<8} {td['weighted_score']:>+5}  {td['aligned']:>7}  {_snr_str(snr.get('support')):<28} {_snr_str(snr.get('resistance')):<28} {snr.get('status', '-')}")
     print("-" * 130)
 
+# ---------------------------------------------------------------- scalping
+SCALP_SYMBOLS = ["XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY"]
+SCALP_TFS = ["M1", "M5", "M15", "H1", "D1"]
+
+def scalp_tf(df):
+    """Indikator scalping untuk 1 timeframe (setup MT5 Abyan):
+    MA 9/21/50/200 (SMA 200), EMA 20/50, Stochastic (14,3,3), RSI14, ATR14."""
+    if df is None or len(df) < 60:
+        return None
+    close = df["close"]
+    price = float(close.iloc[-1])
+    k, d = stochastic(df)
+    kk, dd = float(k.iloc[-1]), float(d.iloc[-1])
+    kp, dp = float(k.iloc[-2]), float(d.iloc[-2])
+    e9 = float(ema(close, 9).iloc[-1]); e21 = float(ema(close, 21).iloc[-1])
+    e50 = float(ema(close, 50).iloc[-1])
+    s200 = float(sma(close, 200).iloc[-1]) if len(df) >= 200 else float(sma(close, len(df)).iloc[-1])
+    r = float(rsi(close, 14).iloc[-1])
+    a = float(atr(df, 14).iloc[-1])
+    if price > e50 and price > s200:
+        trend = "Bullish"
+    elif price < e50 and price < s200:
+        trend = "Bearish"
+    else:
+        trend = "Mixed"
+    return {"price": price, "ema9": e9, "ema21": e21, "ema50": e50,
+            "ma200": s200, "rsi14": r, "stoch_k": kk, "stoch_d": dd,
+            "stoch_k_prev": kp, "stoch_d_prev": dp,
+            "cross_up": kp < dp and kk >= dd,
+            "cross_dn": kp > dp and kk <= dd,
+            "atr": a, "trend": trend}
+
+
+def analyse_scalp(symbol, cfg, tfs, snr_m15=None):
+    """Gabung M1/M5/M15/H1/D1 jadi satu sinyal scalping.
+    Trigger: Stochastic cross di M5. Filter: trend M15/H1/D1 searah."""
+    if not tfs.get("M5") or not tfs.get("M15"):
+        return None
+    m5, m15 = tfs["M5"], tfs["M15"]
+    m1 = tfs.get("M1")
+    price = m5["price"]
+    digits, pip = cfg["digits"], cfg["pip"]
+    atr15 = m15["atr"]
+
+    score = 0
+    for tf, w in (("D1", 20), ("H1", 20), ("M15", 20)):
+        t = tfs.get(tf)
+        if not t:
+            continue
+        score += w if t["trend"] == "Bullish" else (-w if t["trend"] == "Bearish" else 0)
+    if m5["stoch_k"] > m5["stoch_d"]:
+        score += 10
+    elif m5["stoch_k"] < m5["stoch_d"]:
+        score -= 10
+    if m5["stoch_k"] < 20:
+        score += 5
+    elif m5["stoch_k"] > 80:
+        score -= 5
+    if 50 <= m5["rsi14"] <= 70:
+        score += 5
+    elif 30 <= m5["rsi14"] < 50:
+        score -= 5
+    if m15["ema9"] > m15["ema21"] > m15["ema50"]:
+        score += 10
+    elif m15["ema9"] < m15["ema21"] < m15["ema50"]:
+        score -= 10
+    score = int(round(max(-100, min(100, score))))
+
+    long_trig = m5["cross_up"] and m5["stoch_k"] < 40
+    short_trig = m5["cross_dn"] and m5["stoch_k"] > 60
+    m1_ok_long = (m1 is None) or (m1["stoch_k"] >= m1["stoch_d"])
+    m1_ok_short = (m1 is None) or (m1["stoch_k"] <= m1["stoch_d"])
+    if score >= 50 and long_trig and m1_ok_long:
+        signal, emoji = "LONG SCALP", "🟢"
+    elif score <= -50 and short_trig and m1_ok_short:
+        signal, emoji = "SHORT SCALP", "🔴"
+    elif score >= 40:
+        signal, emoji = "SIAP LONG (tunggu cross M5)", "🟡"
+    elif score <= -40:
+        signal, emoji = "SIAP SHORT (tunggu cross M5)", "🟡"
+    else:
+        signal, emoji = "WAIT", "⚪"
+
+    # SL/TP dari ATR M15: SL 0.5 ATR, TP1 1 ATR, TP2 2 ATR.
+    direction = 1 if score >= 0 else -1
+    sl_dist, tp1_dist, tp2_dist = 0.5 * atr15, 1.0 * atr15, 2.0 * atr15
+    return {
+        "symbol": symbol, "price": round(price, digits),
+        "score": score, "signal": signal, "emoji": emoji,
+        "trend_m15": m15["trend"],
+        "trend_h1": tfs.get("H1", {}).get("trend", "-"),
+        "trend_d1": tfs.get("D1", {}).get("trend", "-"),
+        "stoch_k": round(m5["stoch_k"], 1), "stoch_d": round(m5["stoch_d"], 1),
+        "rsi_m5": round(m5["rsi14"], 1),
+        "atr_m15": round(atr15, digits), "atr_m15_pips": round(atr15 / pip, 1),
+        "sl": round(price - direction * sl_dist, digits),
+        "tp1": round(price + direction * tp1_dist, digits),
+        "tp2": round(price + direction * tp2_dist, digits),
+        "sl_pips": round(sl_dist / pip, 1),
+        "tp1_pips": round(tp1_dist / pip, 1),
+        "tp2_pips": round(tp2_dist / pip, 1),
+        "snr_m15": snr_m15 or {},
+        "tfs": {tf: {"trend": t["trend"], "rsi14": round(t["rsi14"], 1),
+                     "stoch_k": round(t["stoch_k"], 1)}
+                for tf, t in tfs.items()},
+    }
+
+
+def print_scalp(rows, sessions, now_wib):
+    print(f"\n=== SCALP MODE  •  Sesi: {', '.join(sessions)}  •  {now_wib.strftime('%d %b %Y %H:%M WIB')} ===")
+    print("Trigger: Stochastic cross di M5. Filter: trend M15/H1/D1 searah. SL 0.5 ATR, TP1 1 ATR, TP2 2 ATR (M15).")
+    print(f"{'Symbol':<8} {'Harga':>12} {'M15':<8} {'H1':<8} {'D1':<8} {'Stoch M5':>10} {'RSI M5':>7} {'Skor':>5}  {'Sinyal':<26} {'SL / TP1 / TP2'}")
+    print("-" * 128)
+    for r in sorted(rows, key=lambda x: x["score"], reverse=True):
+        d = SYMBOLS[r["symbol"]]["digits"]
+        stoch = f"{r['stoch_k']:.1f}/{r['stoch_d']:.1f}"
+        sltp = f"{fmt_price(r['sl'], d)} / {fmt_price(r['tp1'], d)} / {fmt_price(r['tp2'], d)}"
+        print(f"{r['symbol']:<8} {fmt_price(r['price'], d):>12} {r['trend_m15']:<8} {r['trend_h1']:<8} {r['trend_d1']:<8} {stoch:>10} {r['rsi_m5']:>7.1f} {r['score']:>+5}  {r['emoji']} {r['signal']:<24} {sltp}")
+    print("-" * 128)
+
+
+def build_scalp_md(rows, sessions, now):
+    """Markdown mode scalping -> output/scalp-latest.md (+ copy bertimestamp)."""
+    lines = [f"# Scalp Mode — {now.strftime('%d %b %Y %H:%M WIB')}",
+             "", f"Sesi aktif: **{', '.join(sessions)}** (WIB).",
+             "Trigger: Stochastic (14,3,3) cross di M5. Filter: trend M15/H1/D1 searah "
+             "(MA 9/21/50/200 + EMA 20/50). SL 0.5 ATR, TP1 1 ATR, TP2 2 ATR (ATR M15).",
+             "S/R terdekat dari pivot M15. Bukan saran trading — M1/M5 itu noisy, "
+             "tunggu trend searah & level S/R.",
+             "",
+             "| Symbol | Harga | M15 | H1 | D1 | Stoch M5 | RSI M5 | Skor | Sinyal | SL | TP1 | TP2 | S/R M15 terdekat |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for r in sorted(rows, key=lambda x: x["score"], reverse=True):
+        d = SYMBOLS[r["symbol"]]["digits"]
+        snr = r.get("snr_m15") or {}
+        sup = snr.get("support") or []
+        res = snr.get("resistance") or []
+        sr = []
+        if sup:
+            sr.append(f"S {fmt_price(sup[0]['price'], d)} ({sup[0]['dist_pct']:+.1f}%)")
+        if res:
+            sr.append(f"R {fmt_price(res[0]['price'], d)} ({res[0]['dist_pct']:+.1f}%)")
+        lines.append(f"| {r['symbol']} | {fmt_price(r['price'], d)} | {r['trend_m15']} | {r['trend_h1']} | {r['trend_d1']} | {r['stoch_k']}/{r['stoch_d']} | {r['rsi_m5']} | {r['score']:+d} | {r['emoji']} **{r['signal']}** | {fmt_price(r['sl'], d)} | {fmt_price(r['tp1'], d)} | {fmt_price(r['tp2'], d)} | {' • '.join(sr) if sr else '-'} |")
+    lines.append("")
+    for r in sorted(rows, key=lambda x: x["score"], reverse=True):
+        tfs = " ".join(f"{tf}:{v['trend']}(RSI {v['rsi14']}, Stoch {v['stoch_k']})"
+                       for tf, v in r["tfs"].items())
+        lines.append(f"- **{r['symbol']}** — {tfs} • ATR M15 {r['atr_m15']} ({r['atr_m15_pips']} pip)")
+    return "\n".join(lines)
+
+
+def run_scalping(args, now):
+    """Pipeline mode scalping: ambil M1/M5/M15/H1/D1, hitung sinyal, simpan + Telegram."""
+    stamp = now.strftime("%Y-%m-%d_%H%M")
+    sessions = current_sessions(now)
+    rows = []
+    for sym in args.symbols:
+        sym = sym.upper()
+        if sym not in SYMBOLS:
+            print(f"⚠️  {sym} tidak dikenal, skip. Pilihan: {', '.join(SYMBOLS)}")
+            continue
+        cfg = SYMBOLS[sym]
+        try:
+            dfs = {
+                "M1": fetch_yahoo(cfg["yahoo"], "1m", "1d"),
+                "M5": fetch_yahoo(cfg["yahoo"], "5m", "5d"),
+                "M15": fetch_yahoo(cfg["yahoo"], "15m", "5d"),
+                "H1": fetch_yahoo(cfg["yahoo"], "60m", "1mo"),
+                "D1": fetch_yahoo(cfg["yahoo"], "1d", "1y"),
+            }
+        except Exception as e:
+            print(f"⚠️  {sym}: gagal ambil data ({e})")
+            continue
+        if dfs.get("H1") is not None:
+            dfs["H1"] = dfs["H1"].tail(150).reset_index(drop=True)
+        tfs = {}
+        for label in SCALP_TFS:
+            row = scalp_tf(dfs.get(label))
+            if row:
+                tfs[label] = row
+            else:
+                print(f"⚠️  {sym} ({label}): data kurang / gagal")
+        if not tfs.get("M5") or not tfs.get("M15"):
+            print(f"⚠️  {sym}: data M5/M15 kurang, skip")
+            continue
+        # S/R M15 untuk eksekusi dekat level
+        snr_m15 = None
+        if dfs.get("M15") is not None and tfs["M15"].get("atr"):
+            snr_m15 = find_snr(dfs["M15"], tfs["M15"]["price"],
+                               tfs["M15"]["atr"], cfg["digits"])
+        row = analyse_scalp(sym, cfg, tfs, snr_m15)
+        if row:
+            rows.append(row)
+    if not rows:
+        print("Tidak ada data scalping. Cek internet / Yahoo Finance.")
+        sys.exit(1)
+    if args.out in ("all", "console"):
+        print_scalp(rows, sessions, now)
+    if args.out in ("all", "md"):
+        md = build_scalp_md(rows, sessions, now)
+        (OUT / f"scalp_{stamp}.md").write_text(md)
+        (OUT / "scalp-latest.md").write_text(md)
+        print(f"\n💾 Tersimpan di {OUT}/  (scalp_{stamp}.md + scalp-latest.md)")
+    if args.out in ("all", "json"):
+        payload = {"generated_wib": now.isoformat(), "mode": "scalping",
+                   "sessions": sessions, "source": "Yahoo Finance Chart API",
+                   "data": rows}
+        (OUT / f"scalp_{stamp}.json").write_text(json.dumps(payload, indent=2))
+        (OUT / "scalp-latest.json").write_text(json.dumps(payload, indent=2))
+    if args.telegram:
+        try:
+            from telegram_notify import build_scalp_message, send_text
+            msg = build_scalp_message(rows, sessions, now.strftime('%d %b %Y %H:%M WIB'))
+            print("\n📩 Mengirim ke Telegram...")
+            send_text(msg)
+        except Exception as e:
+            print(f"⚠️  Telegram gagal: {e}", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--symbols", nargs="+", default=list(SYMBOLS.keys()),
-                    help="contoh: --symbols XAUUSD XAGUSD EURUSD")
+    ap.add_argument("--mode", choices=["topdown", "scalping"], default="topdown",
+                    help="topdown = W/D/H4/H1/M15 + SnR (default); scalping = M1/M5/M15 + H1/D1, Stochastic + MA")
+    ap.add_argument("--symbols", nargs="+", default=None,
+                    help="contoh: --symbols XAUUSD XAGUSD EURUSD (default topdown: semua 14; scalping: XAU XAG EUR GBP JPY)")
     ap.add_argument("--timeframe", choices=["1d", "1h", "both", "topdown"], default="topdown")
     ap.add_argument("--out", choices=["all", "md", "csv", "json", "console"], default="all")
     ap.add_argument("--alert", action="store_true", help="hanya tampilkan sinyal kuat / RSI ekstrem")
@@ -337,6 +593,11 @@ def main():
         sys.exit(1)
 
     now = datetime.now(WIB)
+    if args.symbols is None:
+        args.symbols = list(SYMBOLS.keys()) if args.mode == "topdown" else list(SCALP_SYMBOLS)
+    if args.mode == "scalping":
+        run_scalping(args, now)
+        return
     stamp = now.strftime("%Y-%m-%d_%H%M")
     all_rows = {}
     topdown = {}

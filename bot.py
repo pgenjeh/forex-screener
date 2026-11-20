@@ -11,6 +11,7 @@ Perintah:
   /xau     -> emas & perak saja (XAUUSD, XAGUSD)
   /majors  -> EURUSD, GBPUSD, USDJPY, DXY
   /snr     -> S/R 6 simbol utama (XAU, XAG, EURUSD, GBPUSD, USDJPY, DXY)
+  /scalp   -> mode scalping: M1/M5/M15 + H1/D1, Stochastic + MA, SL/TP dari ATR
   /help    -> daftar perintah
   /start   -> salam + daftar perintah
 
@@ -55,9 +56,11 @@ HELP_TEXT = (
     "  /xau — emas &amp; perak (XAUUSD, XAGUSD)\n"
     "  /majors — EURUSD, GBPUSD, USDJPY, DXY\n"
     "  /snr — S/R 6 simbol utama\n"
+    "  /scalp — mode scalping (M1/M5/M15 + H1/D1, Stochastic + MA)\n"
     "  /help — daftar perintah ini\n\n"
     "Teknik: Top-Down W/D/H4/H1/M15, eksekusi di S/R — tunggu konfirmasi\n"
-    "H1/M15 dekat level sebelum masuk.\n\n"
+    "H1/M15 dekat level sebelum masuk. Scalp: trigger cross Stochastic M5,\n"
+    "trend M15/H1/D1 searah, SL 0.5 ATR / TP 1-2 ATR (M15).\n\n"
     "Jadwal otomatis tetap jalan tiap 07:00 &amp; 19:30 WIB. "
     "Bukan saran trading — oversold ≠ sinyal buy."
 )
@@ -68,6 +71,7 @@ COMMANDS = {
     "/xau": ["--symbols", "XAUUSD", "XAGUSD"],
     "/majors": ["--symbols", "EURUSD", "GBPUSD", "USDJPY", "DXY"],
     "/snr": ["--symbols", "XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "DXY"],
+    "/scalp": ["--mode", "scalping"],
 }
 
 _last_run = 0.0
@@ -175,7 +179,7 @@ def main():
               file=sys.stderr)
         print("Cara dapatnya: lihat TELEGRAM_SETUP.md", file=sys.stderr)
         sys.exit(2)
-    log("Bot mulai mendengarkan… (perintah: /cek /xau /majors /snr /help)")
+    log("Bot mulai mendengarkan… (perintah: /cek /xau /majors /snr /scalp /help)")
     offset = None
     # Lewati pesan lama yang menumpuk sebelum bot nyala, biar tidak dibalas semua.
     try:

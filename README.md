@@ -121,3 +121,23 @@ Ada versi indikatornya juga buat chart TradingView: `tradingview/pip-topdown-snr
 "di Support / di Resistance / bias berubah". Cara pasang: Pine Editor → paste →
 Add to chart. Pakai chart M15 supaya semua 5 TF kebaca. Detail di
 `tradingview/README.md`.
+
+## Mode Scalping (`--mode scalping` / `/scalp` di Telegram)
+
+Setup MT5 Abyan: trigger **Stochastic (14,3,3) cross di M5**, filter trend
+**M15/H1/D1 searah** (MA 9/21/50/200 + EMA 20/50), konfirmasi **RSI14 +
+Stochastic M1**. S/R dari pivot M15. **SL 0.5 ATR / TP1 1 ATR / TP2 2 ATR**
+(ATR M15). Sesi market yang sedang buka ditampilkan (Sydney/Tokyo/London/
+New York, jam WIB).
+
+```bash
+python3 screener.py --mode scalping                  # XAUUSD XAGUSD EURUSD GBPUSD USDJPY
+python3 screener.py --mode scalping --symbols XAUUSD # emas saja
+```
+
+Sinyal: `LONG/SHORT SCALP` (skor ≥ ±50 + cross M5 searah + M1 searah),
+`SIAP LONG/SHORT` (skor ≥ ±40 tapi cross belum terjadi — tunggu),
+`WAIT` (tidak selaras). Output: `output/scalp-latest.md` (+ `.json`).
+
+Mode ini **on-demand saja** — sinyal M1/M5 cepat basi, jadi tidak
+dijadwalkan seperti Top-Down. Di Telegram tinggal kirim `/scalp` ke bot.
