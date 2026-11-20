@@ -34,6 +34,16 @@ Teknik (sesuai gaya Abyan):
   (Sydney/Tokyo/London/New York, jam WIB). On-demand saja — sinyal M1/M5
   cepat basi, jadi tidak dijadwalkan. Telegram: /scalp di bot.
 
+  MSNR + CRT (ditambahkan 20 Nov 2026):
+  - MSNR (Malaysian SNR): level dari close/open candle (A/V/Gap/OCL),
+    hanya level fresh yang ditampilkan; RBS/SBR saat close menembus level.
+    Dihitung di D1 + H4 (Top-Down) dan M15 (scalping).
+  - CRT (Candle Range Theory, ICT): candle C2 nyapu high/low candle C1
+    lalu close balik ke dalam range -> target sisi seberang, invalidasi di
+    extreme sweep. Hanya candle tutup yang dinilai. Dihitung di H4 + D1
+    (Top-Down) dan M15 + H1 (scalping). CRT searah trend HTF = konfluensi
+    terkuat; CRT lawan trend = hati-hati (mean-reversion).
+
 Output:
   output/screener_YYYY-MM-DD_HHMM-WIB.csv
   output/screener_YYYY-MM-DD_HHMM-WIB.json
@@ -273,6 +283,184 @@ def find_snr(df, price, atr_val, digits, window=5):
     return {"support": sup, "resistance": res, "status": status}
 
 
+# ---------------------------------------------------------------- MSNR + CRT
+def find_msnr_levels(df, atr_val, digits):
+    """Level MSNR (Malaysian SNR) dari body candle, bukan wick.
+
+    - A-level (resistance): candle bullish diikuti bearish, level = close
+      candle bullish. V-level (support): kebalikannya.
+    - Gap level: candle open menjauh dari close sebelumnya (>0.1 ATR),
+      level = close sebelumnya.
+    - OCL: run >= 3 candle sewarna, level = close candle pertama run itu.
+    - Fresh: level dianggap fresh sampai wick candle berikutnya menyentuhnya.
+    - RBS/SBR: candle close menembus level -> peran berbalik, fresh lagi.
+    """
+    if df is None or len(df) < 10 or not atr_val:
+        return []
+    opens = df["open"].values
+    closes = df["close"].values
+    highs = df["high"].values
+    lows = df["low"].values
+    n = len(df)
+    levels = []  # {price, kind, side, formed, fresh, touches}
+
+    def near(price, side):
+        for lv in levels:
+            if lv["side"] == side and abs(lv["price"] - price) <= 0.3 * atr_val:
+                return True
+        return False
+
+    def add(price, kind, side, idx):
+        if near(price, side):
+            return
+        levels.append({"price": round(float(price), digits), "kind": kind,
+                       "side": side, "formed": int(idx), "fresh": True,
+                       "touches": 0})
+
+    run_start, run_dir, run_len = 0, 0, 0
+    # Bar terakhir = candle forming (belum tutup) -> jangan dipakai, sama
+    # seperti alert Pine yang digate barstate.isconfirmed.
+    for j in range(1, n - 1):
+        o, c = opens[j], closes[j]
+        # (a) level lama: sentuh wick -> unfresh; close tembus -> flip RBS/SBR
+        for lv in levels:
+            p = lv["price"]
+            if lv["side"] == "resistance":
+                if highs[j] >= p:
+                    lv["fresh"] = False
+                    lv["touches"] += 1
+                if c > p:
+                    lv["side"] = "support"
+                    lv["fresh"] = True
+                    lv["formed"] = j
+            else:
+                if lows[j] <= p:
+                    lv["fresh"] = False
+                    lv["touches"] += 1
+                if c < p:
+                    lv["side"] = "resistance"
+                    lv["fresh"] = True
+                    lv["formed"] = j
+        # (b) level baru dari pasangan bar j-1, j
+        po, pc = opens[j - 1], closes[j - 1]
+        bull_prev, bear_prev = pc > po, pc < po
+        bull_cur, bear_cur = c > o, c < o
+        if bull_prev and bear_cur:
+            add(pc, "A", "resistance", j)
+        elif bear_prev and bull_cur:
+            add(pc, "V", "support", j)
+        gap = o - pc
+        if abs(gap) > 0.1 * atr_val:
+            add(pc, "Gap", "support" if gap > 0 else "resistance", j)
+        # (c) OCL: run sewarna >= 3 candle berakhir di bar j
+        d = 1 if c > o else (-1 if c < o else 0)
+        if d != 0 and d == run_dir:
+            run_len += 1
+        else:
+            if run_len >= 3:
+                add(closes[run_start], "OCL",
+                    "support" if run_dir > 0 else "resistance", j)
+            run_start, run_dir, run_len = j, d, 1 if d != 0 else 0
+    if run_len >= 3:
+        add(closes[run_start], "OCL",
+            "support" if run_dir > 0 else "resistance", n - 2)
+    return levels
+
+
+def nearest_msnr(levels, price, atr_val, digits):
+    """2 Support + 2 Resistance MSNR fresh terdekat (dengan jarak % dan ATR)."""
+    sup = sorted([lv for lv in levels
+                  if lv["side"] == "support" and lv["price"] < price and lv["fresh"]],
+                 key=lambda x: x["price"], reverse=True)[:2]
+    res = sorted([lv for lv in levels
+                  if lv["side"] == "resistance" and lv["price"] > price and lv["fresh"]],
+                 key=lambda x: x["price"])[:2]
+    out = {"support": [], "resistance": []}
+    for lv in sup:
+        d = dict(lv)
+        d["dist_pct"] = round((lv["price"] / price - 1) * 100, 2)
+        d["dist_atr"] = round((price - lv["price"]) / atr_val, 1)
+        out["support"].append(d)
+    for lv in res:
+        d = dict(lv)
+        d["dist_pct"] = round((lv["price"] / price - 1) * 100, 2)
+        d["dist_atr"] = round((lv["price"] - price) / atr_val, 1)
+        out["resistance"].append(d)
+    return out
+
+
+def detect_crt(df, atr_val, digits, max_lookback=60):
+    """Deteksi CRT (Candle Range Theory, ICT) pada candle yang sudah tutup.
+
+    C1 = candle range (high/low-nya). C2 = candle berikutnya:
+    - Bullish CRT: C2 nyapu low C1 (low < low C1) lalu close balik ke dalam
+      range C1 -> target = high C1, invalidasi = low C2.
+    - Bearish CRT: C2 nyapu high C1 lalu close balik ke dalam -> target =
+      low C1, invalidasi = high C2.
+    Outside bar (C2 jebol dua sisi) diabaikan. Range C1 minimal 0.5 ATR.
+    Status dihitung dari bar setelah C2: 'target hit' / 'invalidated' /
+    'active'. Hanya C2 yang sudah tutup yang dinilai (bar terakhir = forming).
+    """
+    if df is None or len(df) < 5 or not atr_val:
+        return []
+    closes = df["close"].values
+    highs = df["high"].values
+    lows = df["low"].values
+    n = len(df)
+    setups = []
+    for i in range(max(1, n - max_lookback - 1), n - 2):
+        c1h, c1l = float(highs[i]), float(lows[i])
+        if c1h - c1l < 0.5 * atr_val:
+            continue
+        c2h, c2l, c2c = float(highs[i + 1]), float(lows[i + 1]), float(closes[i + 1])
+        if c2h > c1h and c2l < c1l:
+            continue  # outside bar
+        setup = None
+        if c2l < c1l and c1l < c2c <= c1h:
+            setup = {"direction": "Bullish", "range_high": round(c1h, digits),
+                     "range_low": round(c1l, digits), "target": round(c1h, digits),
+                     "invalidation": round(c2l, digits),
+                     "sweep_atr": round((c1l - c2l) / atr_val, 2)}
+        elif c2h > c1h and c1l <= c2c < c1h:
+            setup = {"direction": "Bearish", "range_high": round(c1h, digits),
+                     "range_low": round(c1l, digits), "target": round(c1l, digits),
+                     "invalidation": round(c2h, digits),
+                     "sweep_atr": round((c2h - c1h) / atr_val, 2)}
+        if not setup:
+            continue
+        setup["bars_ago"] = int(n - 1 - (i + 1))
+        # status: cek bar setelah C2 sampai bar terakhir (termasuk forming)
+        status = "active"
+        for k in range(i + 2, n):
+            if setup["direction"] == "Bullish":
+                if float(lows[k]) < setup["invalidation"]:
+                    status = "invalidated"
+                    break
+                if float(highs[k]) >= setup["target"]:
+                    status = "target hit"
+                    break
+            else:
+                if float(highs[k]) > setup["invalidation"]:
+                    status = "invalidated"
+                    break
+                if float(lows[k]) <= setup["target"]:
+                    status = "target hit"
+                    break
+        setup["status"] = status
+        setups.append(setup)
+    return setups
+
+
+def latest_crt(setups):
+    """Setup CRT terbaru yang masih active, atau yang terbaru apa pun."""
+    if not setups:
+        return None
+    for s in reversed(setups):
+        if s["status"] == "active":
+            return s
+    return setups[-1]
+
+
 TF_WEIGHTS = {"Weekly": 0.30, "Daily": 0.30, "H4": 0.20, "H1": 0.10, "M15": 0.10}
 TF_ORDER = ["Weekly", "Daily", "H4", "H1", "M15"]
 
@@ -342,6 +530,42 @@ def _snr_str(levels):
         tag = ", H4" if c.get("tf") == "H4" else ""
         parts.append(f"{c['price']:,} ({c['dist_pct']:+.1f}%, {c['touches']}x{tag})")
     return ", ".join(parts)
+
+def _msnr_str(levels):
+    """'3,642.10 (A, -1.0%)' per level, digabung koma. Kosong -> '-'."""
+    if not levels:
+        return "-"
+    parts = []
+    for c in levels:
+        tag = ", H4" if c.get("tf") == "H4" else ""
+        parts.append(f"{c['price']:,} ({c['kind']}{tag}, {c['dist_pct']:+.1f}%)")
+    return ", ".join(parts)
+
+
+def _crt_str(crt):
+    """'H4 Bullish (1 bar, aktif, target 3,600)' atau '-'."""
+    if not crt:
+        return "-"
+    parts = []
+    for tf in ("H4", "Daily"):
+        s = crt.get(tf)
+        if not s:
+            continue
+        arrow = "▲" if s["direction"] == "Bullish" else "▼"
+        parts.append(f"{tf} {arrow} {s['direction']} ({s['bars_ago']} bar, {s['status']}, tgt {s['target']:,})")
+    return " | ".join(parts) if parts else "-"
+
+
+def print_msnr_crt(topdown, now_wib):
+    print(f"\n=== MSNR + CRT  •  {now_wib.strftime('%d %b %Y %H:%M WIB')} ===")
+    print("MSNR: level fresh dari close candle (A/V/Gap/OCL, D1+H4). CRT: sweep + close balik ke dalam range (H4/D1).")
+    print(f"{'Symbol':<8} {'MSNR Support fresh':<30} {'MSNR Resistance fresh':<30} CRT terbaru")
+    print("-" * 128)
+    for sym, td in sorted(topdown.items(), key=lambda kv: kv[1]["weighted_score"], reverse=True):
+        msnr = td.get("msnr") or {}
+        print(f"{sym:<8} {_msnr_str(msnr.get('support')):<30} {_msnr_str(msnr.get('resistance')):<30} {_crt_str(td.get('crt'))}")
+    print("-" * 128)
+
 
 def print_topdown(topdown, now_wib):
     print(f"\n=== TOP-DOWN + SnR  •  {now_wib.strftime('%d %b %Y %H:%M WIB')} ===")
@@ -462,17 +686,35 @@ def analyse_scalp(symbol, cfg, tfs, snr_m15=None):
     }
 
 
+def _crt_short(crt):
+    """'M15▼ aktif' / 'H1▲ 2bar' / '-' — setup CRT terbaru yang masih aktif."""
+    if not crt:
+        return "-"
+    for tf in ("M15", "H1"):
+        s = crt.get(tf)
+        if s and s["status"] == "active":
+            arrow = "▲" if s["direction"] == "Bullish" else "▼"
+            return f"{tf}{arrow} aktif"
+    for tf in ("M15", "H1"):
+        s = crt.get(tf)
+        if s:
+            arrow = "▲" if s["direction"] == "Bullish" else "▼"
+            return f"{tf}{arrow} {s['bars_ago']}bar"
+    return "-"
+
+
 def print_scalp(rows, sessions, now_wib):
     print(f"\n=== SCALP MODE  •  Sesi: {', '.join(sessions)}  •  {now_wib.strftime('%d %b %Y %H:%M WIB')} ===")
     print("Trigger: Stochastic cross di M5. Filter: trend M15/H1/D1 searah. SL 0.5 ATR, TP1 1 ATR, TP2 2 ATR (M15).")
-    print(f"{'Symbol':<8} {'Harga':>12} {'M15':<8} {'H1':<8} {'D1':<8} {'Stoch M5':>10} {'RSI M5':>7} {'Skor':>5}  {'Sinyal':<26} {'SL / TP1 / TP2'}")
-    print("-" * 128)
+    print("CRT: sweep + close balik ke dalam range (M15/H1) — konfirmasi tambahan, searah trend lebih kuat.")
+    print(f"{'Symbol':<8} {'Harga':>12} {'M15':<8} {'H1':<8} {'D1':<8} {'Stoch M5':>10} {'RSI M5':>7} {'Skor':>5}  {'Sinyal':<26} {'CRT':<12} {'SL / TP1 / TP2'}")
+    print("-" * 142)
     for r in sorted(rows, key=lambda x: x["score"], reverse=True):
         d = SYMBOLS[r["symbol"]]["digits"]
         stoch = f"{r['stoch_k']:.1f}/{r['stoch_d']:.1f}"
         sltp = f"{fmt_price(r['sl'], d)} / {fmt_price(r['tp1'], d)} / {fmt_price(r['tp2'], d)}"
-        print(f"{r['symbol']:<8} {fmt_price(r['price'], d):>12} {r['trend_m15']:<8} {r['trend_h1']:<8} {r['trend_d1']:<8} {stoch:>10} {r['rsi_m5']:>7.1f} {r['score']:>+5}  {r['emoji']} {r['signal']:<24} {sltp}")
-    print("-" * 128)
+        print(f"{r['symbol']:<8} {fmt_price(r['price'], d):>12} {r['trend_m15']:<8} {r['trend_h1']:<8} {r['trend_d1']:<8} {stoch:>10} {r['rsi_m5']:>7.1f} {r['score']:>+5}  {r['emoji']} {r['signal']:<24} {_crt_short(r.get('crt')):<12} {sltp}")
+    print("-" * 142)
 
 
 def build_scalp_md(rows, sessions, now):
@@ -484,8 +726,8 @@ def build_scalp_md(rows, sessions, now):
              "S/R terdekat dari pivot M15. Bukan saran trading — M1/M5 itu noisy, "
              "tunggu trend searah & level S/R.",
              "",
-             "| Symbol | Harga | M15 | H1 | D1 | Stoch M5 | RSI M5 | Skor | Sinyal | SL | TP1 | TP2 | S/R M15 terdekat |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| Symbol | Harga | M15 | H1 | D1 | Stoch M5 | RSI M5 | Skor | Sinyal | CRT | SL | TP1 | TP2 | S/R M15 terdekat |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in sorted(rows, key=lambda x: x["score"], reverse=True):
         d = SYMBOLS[r["symbol"]]["digits"]
         snr = r.get("snr_m15") or {}
@@ -496,12 +738,13 @@ def build_scalp_md(rows, sessions, now):
             sr.append(f"S {fmt_price(sup[0]['price'], d)} ({sup[0]['dist_pct']:+.1f}%)")
         if res:
             sr.append(f"R {fmt_price(res[0]['price'], d)} ({res[0]['dist_pct']:+.1f}%)")
-        lines.append(f"| {r['symbol']} | {fmt_price(r['price'], d)} | {r['trend_m15']} | {r['trend_h1']} | {r['trend_d1']} | {r['stoch_k']}/{r['stoch_d']} | {r['rsi_m5']} | {r['score']:+d} | {r['emoji']} **{r['signal']}** | {fmt_price(r['sl'], d)} | {fmt_price(r['tp1'], d)} | {fmt_price(r['tp2'], d)} | {' • '.join(sr) if sr else '-'} |")
+        lines.append(f"| {r['symbol']} | {fmt_price(r['price'], d)} | {r['trend_m15']} | {r['trend_h1']} | {r['trend_d1']} | {r['stoch_k']}/{r['stoch_d']} | {r['rsi_m5']} | {r['score']:+d} | {r['emoji']} **{r['signal']}** | {_crt_short(r.get('crt'))} | {fmt_price(r['sl'], d)} | {fmt_price(r['tp1'], d)} | {fmt_price(r['tp2'], d)} | {' • '.join(sr) if sr else '-'} |")
     lines.append("")
     for r in sorted(rows, key=lambda x: x["score"], reverse=True):
         tfs = " ".join(f"{tf}:{v['trend']}(RSI {v['rsi14']}, Stoch {v['stoch_k']})"
                        for tf, v in r["tfs"].items())
-        lines.append(f"- **{r['symbol']}** — {tfs} • ATR M15 {r['atr_m15']} ({r['atr_m15_pips']} pip)")
+        msnr = r.get("msnr_m15") or {}
+        lines.append(f"- **{r['symbol']}** — {tfs} • ATR M15 {r['atr_m15']} ({r['atr_m15_pips']} pip) • MSNR M15 fresh: S {_msnr_str(msnr.get('support'))} / R {_msnr_str(msnr.get('resistance'))}")
     return "\n".join(lines)
 
 
@@ -544,8 +787,20 @@ def run_scalping(args, now):
         if dfs.get("M15") is not None and tfs["M15"].get("atr"):
             snr_m15 = find_snr(dfs["M15"], tfs["M15"]["price"],
                                tfs["M15"]["atr"], cfg["digits"])
+        # CRT (M15 + H1) & level MSNR M15
+        crt_scalp = {}
+        if dfs.get("M15") is not None:
+            crt_scalp["M15"] = latest_crt(detect_crt(dfs["M15"], tfs["M15"]["atr"], cfg["digits"]))
+        if dfs.get("H1") is not None and tfs.get("H1"):
+            crt_scalp["H1"] = latest_crt(detect_crt(dfs["H1"], tfs["H1"]["atr"], cfg["digits"]))
+        msnr_m15 = None
+        if dfs.get("M15") is not None:
+            lvls_m15 = find_msnr_levels(dfs["M15"], tfs["M15"]["atr"], cfg["digits"])
+            msnr_m15 = nearest_msnr(lvls_m15, tfs["M15"]["price"], tfs["M15"]["atr"], cfg["digits"])
         row = analyse_scalp(sym, cfg, tfs, snr_m15)
         if row:
+            row["crt"] = crt_scalp
+            row["msnr_m15"] = msnr_m15 or {}
             rows.append(row)
     if not rows:
         print("Tidak ada data scalping. Cek internet / Yahoo Finance.")
@@ -674,6 +929,32 @@ def main():
                         snr[side] = [lvl] + cur[:1]
                 snr["status"] = _snr_status(snr)
         topdown[sym] = build_topdown(sym, rows_by_tf, snr)
+        # --- MSNR levels (D1 + H4) & CRT (H4 + D1) ---
+        msnr = {"support": [], "resistance": [], "fresh_total": 0}
+        crt = {}
+        if daily_row and dfs.get("Daily") is not None:
+            lvls_d = find_msnr_levels(dfs["Daily"], daily_row["atr"], cfg["digits"])
+            near_d = nearest_msnr(lvls_d, daily_row["price"], daily_row["atr"], cfg["digits"])
+            msnr["support"] = near_d["support"]
+            msnr["resistance"] = near_d["resistance"]
+            msnr["fresh_total"] = sum(1 for lv in lvls_d if lv["fresh"])
+            crt["Daily"] = latest_crt(detect_crt(dfs["Daily"], daily_row["atr"], cfg["digits"]))
+            if dfs.get("H4") is not None and rows_by_tf.get("H4"):
+                lvls_h4 = find_msnr_levels(dfs["H4"], rows_by_tf["H4"]["atr"], cfg["digits"])
+                near_h4 = nearest_msnr(lvls_h4, rows_by_tf["H4"]["price"],
+                                       rows_by_tf["H4"]["atr"], cfg["digits"])
+                msnr["fresh_total"] += sum(1 for lv in lvls_h4 if lv["fresh"])
+                # Level H4 lebih dekat untuk eksekusi: tampilkan di depan
+                # kalau level Daily terlalu jauh (>3%) atau tidak ada.
+                for side in ("support", "resistance"):
+                    cur = msnr.get(side) or []
+                    if (not cur or abs(cur[0]["dist_pct"]) > 3) and near_h4.get(side):
+                        lvl = dict(near_h4[side][0])
+                        lvl["tf"] = "H4"
+                        msnr[side] = [lvl] + cur[:1]
+                crt["H4"] = latest_crt(detect_crt(dfs["H4"], rows_by_tf["H4"]["atr"], cfg["digits"]))
+        topdown[sym]["msnr"] = msnr
+        topdown[sym]["crt"] = crt
 
     if not all_rows:
         print("Tidak ada data. Cek internet / Yahoo Finance.")
@@ -693,6 +974,7 @@ def main():
     # --- tabel Top-Down & SnR ---
     if topdown and args.out in ("all", "console"):
         print_topdown(topdown, now)
+        print_msnr_crt(topdown, now)
 
     # --- simpan file (pakai Daily sebagai utama, H1 sebagai tambahan) ---
     flat = [r for rows in all_rows.values() for r in rows]
@@ -723,6 +1005,27 @@ def main():
                 ar = {tf: td["tfs"].get(tf, {}).get("arrow", "?") for tf in TF_ORDER}
                 snr = td.get("snr") or {}
                 lines.append(f"| {sym} | {ar['Weekly']} | {ar['Daily']} | {ar['H4']} | {ar['H1']} | {ar['M15']} | **{td['bias']}** | {td['weighted_score']:+d} | {td['aligned']} | {_snr_str(snr.get('support'))} | {_snr_str(snr.get('resistance'))} | {snr.get('status', '-')} |")
+            lines.append("")
+            lines.append("## MSNR (level fresh, D1+H4)")
+            lines.append("Level dari close candle (A = resistance, V = support, Gap, OCL). "
+                         "Fresh = belum pernah disentuh wick sejak terbentuk; "
+                         "RBS/SBR = level yang sudah ditembus close lalu berbalik peran.")
+            lines.append("")
+            lines.append("| Symbol | Support fresh terdekat | Resistance fresh terdekat | Level fresh (D1+H4) |")
+            lines.append("|---|---|---|---|")
+            for sym, td in sorted(topdown.items(), key=lambda kv: kv[1]["weighted_score"], reverse=True):
+                msnr = td.get("msnr") or {}
+                lines.append(f"| {sym} | {_msnr_str(msnr.get('support'))} | {_msnr_str(msnr.get('resistance'))} | {msnr.get('fresh_total', 0)} |")
+            lines.append("")
+            lines.append("## CRT (H4/D1)")
+            lines.append("Sweep high/low candle sebelumnya lalu close balik ke dalam range = "
+                         "target sisi seberang. Hanya candle yang sudah tutup yang dinilai; "
+                         "sweep yang close-nya bertahan di luar range = breakout, bukan CRT.")
+            lines.append("")
+            lines.append("| Symbol | CRT terbaru |")
+            lines.append("|---|---|")
+            for sym, td in sorted(topdown.items(), key=lambda kv: kv[1]["weighted_score"], reverse=True):
+                lines.append(f"| {sym} | {_crt_str(td.get('crt'))} |")
             lines.append("")
             for label, rows in all_rows.items():
                 lines.append(f"## {label}")

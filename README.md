@@ -141,3 +141,24 @@ Sinyal: `LONG/SHORT SCALP` (skor ≥ ±50 + cross M5 searah + M1 searah),
 
 Mode ini **on-demand saja** — sinyal M1/M5 cepat basi, jadi tidak
 dijadwalkan seperti Top-Down. Di Telegram tinggal kirim `/scalp` ke bot.
+
+## MSNR + CRT
+
+**MSNR (Malaysian SNR)** — level dari close/open candle, bukan wick:
+A-level (resistance), V-level (support), Gap level, OCL (run ≥ 3 candle
+sewarna). Hanya **level fresh** yang ditampilkan (belum pernah disentuh
+wick sejak terbentuk); level yang ditembus close berbalik peran (RBS/SBR)
+dan jadi fresh lagi. Dihitung di D1 + H4 (Top-Down) dan M15 (scalping).
+
+**CRT (Candle Range Theory, ICT)** — candle C2 menyapu high/low candle
+C1 lalu close balik ke dalam range C1 → target sisi seberang, invalidasi
+di extreme sweep-nya. Hanya candle yang sudah tutup yang dinilai; sweep
+yang close-nya bertahan di luar range = breakout, bukan CRT. Dihitung di
+H4 + D1 (Top-Down) dan M15 + H1 (scalping). Output: arah, berapa bar lalu,
+status (`active` / `target hit` / `invalidated`), target, invalidasi.
+
+Aturan pakai: **CRT searah trend HTF di level MSNR fresh = konfluensi
+terkuat.** CRT lawan trend itu mean-reversion — hati-hati, apalagi di hari
+trend kuat. Backtest mekanis keduanya belum menunjukkan edge setelah
+biaya; edge-nya (kalau ada) ada di filternya: level fresh, searah HTF,
+sesi London/New York.

@@ -128,6 +128,23 @@ def build_message(all_rows, now_str, topdown=None):
             if td:
                 lines.append(_td_line(td))
         lines.append("Eksekusi: tunggu konfirmasi H1/M15 di dekat level S/R.")
+        # CRT terbaru yang masih aktif (maks 2 bar terakhir) — pemicu sweep
+        fresh_crt = []
+        for sym in KEY_SYMBOLS:
+            td = topdown.get(sym)
+            if not td:
+                continue
+            for tf in ("H4", "Daily"):
+                s = (td.get("crt") or {}).get(tf)
+                if s and s["status"] == "active" and s["bars_ago"] <= 2:
+                    arrow = "▲" if s["direction"] == "Bullish" else "▼"
+                    fresh_crt.append(
+                        f"{sym} {tf} {arrow} {s['direction']} "
+                        f"(tgt {s['target']:,}, inval {s['invalidation']:,})"
+                    )
+                    break
+        if fresh_crt:
+            lines.append("<b>⚡ CRT aktif:</b> " + " • ".join(fresh_crt))
         lines.append("")
     daily = all_rows.get("Daily") or []
     if daily:
@@ -185,6 +202,15 @@ def build_scalp_message(rows, sessions, now_str):
         lines.append(
             f"   SL {r['sl']:,} ({r['sl_pips']} pip) • TP1 {r['tp1']:,} • TP2 {r['tp2']:,}"
         )
+        crt = r.get("crt") or {}
+        crt_bits = []
+        for tf in ("M15", "H1"):
+            s = crt.get(tf)
+            if s and s["status"] == "active":
+                arrow = "▲" if s["direction"] == "Bullish" else "▼"
+                crt_bits.append(f"{tf} {arrow} {s['direction']} (tgt {s['target']:,})")
+        if crt_bits:
+            lines.append(f"   ⚡ CRT: {' • '.join(crt_bits)}")
         if sr:
             lines.append(f"   S/R M15: {' • '.join(sr)}")
     lines.append("")
