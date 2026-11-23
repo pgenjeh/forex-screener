@@ -220,6 +220,49 @@ def build_scalp_message(rows, sessions, now_str, source=None):
     return "\n".join(lines)
 
 
+def _pct_diff(a, b):
+    """Selisih % a vs b, atau None kalau tidak bisa dihitung."""
+    if a is None or b is None or b == 0:
+        return None
+    return (a / b - 1) * 100
+
+def build_compare_message(rows, now_str):
+    """Pesan ringkas perbandingan sumber untuk Telegram (HTML).
+
+    rows = hasil run_compare: [{symbol, spot_xaus, yahoo, biquote, xaus}]
+    dengan tiap sumber berisi dict hasil analyse() atau None.
+    """
+    lines = [f"<b>⚖️ Banding Sumber — {now_str}</b>", ""]
+    for rec in rows:
+        sym = rec["symbol"]
+        yh, bq, xa = rec.get("yahoo"), rec.get("biquote"), rec.get("xaus")
+        lines.append(f"<b>{sym}</b>")
+        for label, r in (("Yahoo", yh), ("Biquote", bq), ("XAUS", xa)):
+            if r:
+                lines.append(
+                    f"{label} {r['price']:,} • RSI {r['rsi14']} • "
+                    f"{r['score']:+d} {r['signal']}"
+                )
+        # XAUS spot saja (perak/BTC tanpa histori Daily)
+        if not xa and rec.get("spot_xaus") is not None:
+            lines.append(f"XAUS {rec['spot_xaus']:,} (spot)")
+        diffs = []
+        yh_p = yh["price"] if yh else None
+        bq_p = bq["price"] if bq else None
+        xa_p = xa["price"] if xa else rec.get("spot_xaus")
+        d = _pct_diff(bq_p, yh_p)
+        if d is not None:
+            diffs.append(f"Bq {d:+.2f}%")
+        d = _pct_diff(xa_p, yh_p)
+        if d is not None:
+            diffs.append(f"XAUS {d:+.2f}%")
+        if diffs:
+            lines.append(f"Selisih: {' • '.join(diffs)}")
+        lines.append("")
+    lines.append("Yahoo = futures, Biquote/XAUS = spot. Bukan saran trading.")
+    return "\n".join(lines)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()

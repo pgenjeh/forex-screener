@@ -126,6 +126,9 @@ Selain update otomatis 07:00 & 19:30 WIB, chat bot-nya kapan saja:
 - `/cek` — screener lengkap (semua simbol)
 - `/xau` — emas & perak saja
 - `/majors` — EURUSD, GBPUSD, USDJPY, DXY
+- `/snr` — S/R 6 simbol utama
+- `/scalp` — mode scalping
+- `/banding` — bandingkan Yahoo vs Biquote vs XAUS (Daily + spot live, + file tabel lengkap)
 - `/help` — daftar perintah
 
 Bot hanya menjawab chat id di `TELEGRAM_CHAT_ID`. Detail di `TELEGRAM_SETUP.md`.

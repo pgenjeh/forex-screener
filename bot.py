@@ -12,6 +12,7 @@ Perintah:
   /majors  -> EURUSD, GBPUSD, USDJPY, DXY
   /snr     -> S/R 6 simbol utama (XAU, XAG, EURUSD, GBPUSD, USDJPY, DXY)
   /scalp   -> mode scalping: M1/M5/M15 + H1/D1, Stochastic + MA, SL/TP dari ATR
+  /banding -> bandingkan Yahoo vs Biquote vs XAUS (Daily + spot live)
   /help    -> daftar perintah
   /start   -> salam + daftar perintah
 
@@ -57,6 +58,7 @@ HELP_TEXT = (
     "  /majors — EURUSD, GBPUSD, USDJPY, DXY\n"
     "  /snr — S/R 6 simbol utama\n"
     "  /scalp — mode scalping (M1/M5/M15 + H1/D1, Stochastic + MA)\n"
+    "  /banding — banding Yahoo vs Biquote vs XAUS\n"
     "  /help — daftar perintah ini\n\n"
     "Teknik: Top-Down W/D/H4/H1/M15, eksekusi di S/R — tunggu konfirmasi\n"
     "H1/M15 dekat level sebelum masuk. Scalp: trigger cross Stochastic M5,\n"
@@ -72,6 +74,7 @@ COMMANDS = {
     "/majors": ["--symbols", "EURUSD", "GBPUSD", "USDJPY", "DXY"],
     "/snr": ["--symbols", "XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "DXY"],
     "/scalp": ["--mode", "scalping"],
+    "/banding": ["--compare"],
 }
 
 _last_run = 0.0
@@ -179,7 +182,7 @@ def main():
               file=sys.stderr)
         print("Cara dapatnya: lihat TELEGRAM_SETUP.md", file=sys.stderr)
         sys.exit(2)
-    log("Bot mulai mendengarkan… (perintah: /cek /xau /majors /snr /scalp /help)")
+    log("Bot mulai mendengarkan… (perintah: /cek /xau /majors /snr /scalp /banding /help)")
     offset = None
     # Lewati pesan lama yang menumpuk sebelum bot nyala, biar tidak dibalas semua.
     try:

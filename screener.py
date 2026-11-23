@@ -1027,7 +1027,9 @@ def run_compare(args, now):
             print(f"⚠️  {sym} tidak dikenal, skip. Pilihan: {', '.join(SYMBOLS)}")
             continue
         cfg = SYMBOLS[sym]
-        rec = {"symbol": sym, "spot_xaus": (spot or {}).get(sym)}
+        _spot = (spot or {}).get(sym)
+        rec = {"symbol": sym,
+               "spot_xaus": round(_spot, cfg["digits"]) if _spot is not None else None}
         for src in ("yahoo", "biquote", "xaus"):
             try:
                 if src == "yahoo":
@@ -1094,6 +1096,19 @@ def run_compare(args, now):
         (OUT / "compare-latest.json").write_text(json.dumps(payload, indent=2))
     if args.out in ("all", "md", "json"):
         print(f"\n💾 Tersimpan di {OUT}/  (compare_{stamp}.* + compare-latest.*)")
+
+    # --- Telegram (opsional, dipakai bot /banding) ---
+    if args.telegram:
+        try:
+            from telegram_notify import build_compare_message, send_text, send_file
+            msg = build_compare_message(rows, now.strftime('%d %b %Y %H:%M WIB'))
+            print("\n📩 Mengirim ke Telegram...")
+            send_text(msg)
+            if args.out in ("all", "md"):
+                send_file(OUT / "compare-latest.md",
+                          caption="Tabel perbandingan lengkap (Yahoo vs Biquote vs XAUS)")
+        except Exception as e:
+            print(f"⚠️  Telegram gagal: {e}", file=sys.stderr)
 
 
 def main():
