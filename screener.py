@@ -2,11 +2,11 @@
 """
 Pip Forex Screener — multi-symbol XAUUSD, XAGUSD, majors & crosses
 ====================================================================
-Tanpa API key. Sumber: Yahoo Finance Chart API (public, gratis) — utama;
-  Biquote (feed MT5 live, gratis tanpa key) — fallback otomatis kalau Yahoo
-  gagal/rate-limit; XAUS (xaus.com, gratis tanpa key) — emas saja, buat
-  perbandingan. Pilih manual: --source yahoo|biquote|xaus|auto (default auto),
-  atau env SCREENER_SOURCE. Bandingkan ketiganya: --compare.
+Tanpa API key. Sumber: Biquote (feed MT5 live, gratis tanpa key) — utama;
+  XAUS (xaus.com, gratis tanpa key) — kedua, emas Daily saja; Yahoo
+  Finance Chart API (public, gratis) — terakhir kalau Biquote + XAUS
+  gagal/terlalu sedikit. Pilih manual: --source yahoo|biquote|xaus|auto
+  (default auto), atau env SCREENER_SOURCE. Bandingkan ketiganya: --compare.
 
 Cara pakai:
   python3 screener.py                 # default: Top-Down semua symbol (W/D/H4/H1/M15 + SnR)
@@ -101,9 +101,10 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Pip-Forex-Screener/1.0
 REQ_TIMEOUT = 10
 
 # ---------------------------------------------------------------- sumber data
-# Yahoo = utama (Daily 5 thn, semua 14 simbol). Biquote = fallback gratis
-# tanpa key (feed MT5 live, 15.000 req/menit/IP, 2.081 simbol incl. DXY) —
-# dipakai kalau Yahoo gagal/rate-limit. Biquote tidak punya interval 1w
+# Biquote = utama (feed MT5 live, gratis tanpa key, 15.000 req/menit/IP,
+# 2.081 simbol incl. DXY). XAUS = kedua (emas Daily saja, gratis tanpa key).
+# Yahoo = terakhir (Daily 5 thn, semua 14 simbol) — dipakai kalau Biquote
+# + XAUS gagal/terlalu sedikit. Biquote tidak punya interval 1w
 # (di-resample dari Daily) dan retensi tiap interval terbatas: Daily ~500 bar
 # (~19 bln), 1h ~169 bar (~7 hari) — jadi H4 dari resample 1h Biquote
 # terlalu pendek, dipakai interval 4h native Biquote sebagai gantinya.
@@ -122,10 +123,10 @@ def source_label():
         return "Biquote (feed MT5)"
     if SOURCES_USED == {"xaus"}:
         return "XAUS (xaus.com)"
-    if SOURCES_USED == {"yahoo", "biquote"}:
-        return "Yahoo Finance + Biquote (fallback)"
     if len(SOURCES_USED) > 1:
-        return " + ".join(_SRC_NAMES[s] for s in sorted(SOURCES_USED)) + " (campuran)"
+        order = ["biquote", "xaus", "yahoo"]
+        names = [_SRC_NAMES[s] for s in order if s in SOURCES_USED]
+        return " + ".join(names) + " (campuran)"
     return "Yahoo Finance Chart API"
 
 # ---------------------------------------------------------------- helpers
@@ -305,14 +306,15 @@ def fetch_xaus(symbol, interval, range_):
 def fetch_data(symbol, interval, range_, source="auto"):
     """Ambil OHLC untuk satu simbol+TF.
 
-    source: "auto" = Yahoo dulu, gagal/terlalu sedikit -> Biquote;
-    "yahoo"/"biquote"/"xaus" = paksa satu sumber (xaus cuma emas Daily).
-    Sumber yang berhasil dicatat di SOURCES_USED (dipakai label output).
+    source: "auto" = Biquote dulu, gagal/terlalu sedikit -> XAUS (emas
+    Daily saja) -> Yahoo; "yahoo"/"biquote"/"xaus" = paksa satu sumber
+    (xaus cuma emas Daily). Sumber yang berhasil dicatat di SOURCES_USED
+    (dipakai label output).
     """
     cfg = SYMBOLS[symbol]
-    order = {"auto": ("yahoo", "biquote"),
+    order = {"auto": ("biquote", "xaus", "yahoo"),
              "yahoo": ("yahoo",), "biquote": ("biquote",),
-             "xaus": ("xaus",)}.get(source, ("yahoo", "biquote"))
+             "xaus": ("xaus",)}.get(source, ("biquote", "xaus", "yahoo"))
     for src in order:
         try:
             if src == "yahoo":
@@ -981,16 +983,20 @@ def run_scalping(args, now):
         sys.exit(1)
     if args.out in ("all", "console"):
         print_scalp(rows, sessions, now)
-    if args.out in ("all", "md"):
+    # scalp-latest.md SELALU di-refresh (bukan cuma saat --out md).
+    if args.out in ("all", "md", "json"):
         md = build_scalp_md(rows, sessions, now)
-        (OUT / f"scalp_{stamp}.md").write_text(md)
+        if args.out in ("all", "md"):
+            (OUT / f"scalp_{stamp}.md").write_text(md)
+            print(f"\n💾 Tersimpan di {OUT}/  (scalp_{stamp}.md + scalp-latest.md)")
         (OUT / "scalp-latest.md").write_text(md)
-        print(f"\n💾 Tersimpan di {OUT}/  (scalp_{stamp}.md + scalp-latest.md)")
-    if args.out in ("all", "json"):
+    # scalp-latest.json SELALU di-refresh (bukan cuma saat --out json).
+    if args.out in ("all", "json", "md"):
         payload = {"generated_wib": now.isoformat(), "mode": "scalping",
                    "sessions": sessions, "source": source_label(),
                    "data": rows}
-        (OUT / f"scalp_{stamp}.json").write_text(json.dumps(payload, indent=2))
+        if args.out in ("all", "json"):
+            (OUT / f"scalp_{stamp}.json").write_text(json.dumps(payload, indent=2))
         (OUT / "scalp-latest.json").write_text(json.dumps(payload, indent=2))
     if args.telegram:
         try:
@@ -1295,15 +1301,20 @@ def main():
                 with open(OUT / f"screener_{stamp}-{tag}.csv", "w", newline="") as f:
                     w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
                     w.writeheader(); w.writerows(rows)
-            with open(OUT / "latest.csv", "w", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=list(flat[0].keys()))
-                w.writeheader(); w.writerows(flat)
+        # latest.csv SELALU di-refresh (bukan cuma saat --out csv), supaya
+        # file "latest" tidak pernah basi — docstring: latest.* selalu overwrite.
+        with open(OUT / "latest.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(flat[0].keys()))
+            w.writeheader(); w.writerows(flat)
+        payload = {"generated_wib": now.isoformat(), "source": source_label(),
+                   "data": all_rows, "topdown": topdown}
         if args.out in ("all", "json"):
-            payload = {"generated_wib": now.isoformat(), "source": source_label(),
-                       "data": all_rows, "topdown": topdown}
             (OUT / f"screener_{stamp}.json").write_text(json.dumps(payload, indent=2))
-            (OUT / "latest.json").write_text(json.dumps(payload, indent=2))
-        if args.out in ("all", "md"):
+        # latest.json SELALU di-refresh (lihat catatan di latest.csv).
+        (OUT / "latest.json").write_text(json.dumps(payload, indent=2))
+        # MD selalu dibangun (latest.md wajib fresh); salinan bertimestamp
+        # hanya bila --out minta md.
+        if args.out in ("all", "csv", "json", "md"):
             src_note = ("Yahoo Finance (GC=F, SI=F, EURUSD=X, dst)" if SOURCES_USED == {"yahoo"}
                         else source_label())
             lines = [f"# Forex Screener — {now.strftime('%d %b %Y %H:%M WIB')}",
@@ -1347,7 +1358,8 @@ def main():
                     d = SYMBOLS[r["symbol"]]["digits"]
                     lines.append(f"| {r['symbol']} | {fmt_price(r['price'], d)} | {r['chg_pct']:+.2f}% | {r['rsi14']} ({r['rsi_tag']}) | {r['atr_pips']} | {r['trend']} | {r['score']:+d} | **{r['signal']}** |")
                 lines.append("")
-            (OUT / f"screener_{stamp}.md").write_text("\n".join(lines))
+            if args.out in ("all", "md"):
+                (OUT / f"screener_{stamp}.md").write_text("\n".join(lines))
             (OUT / "latest.md").write_text("\n".join(lines))
         print(f"\n💾 Tersimpan di {OUT}/  (screener_{stamp}.* + latest.*)")
 

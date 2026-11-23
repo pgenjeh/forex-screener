@@ -1,18 +1,18 @@
 # Pip Forex Screener — XAUUSD, XAGUSD & Majors
 
-Screener multi-symbol tanpa API key. Sumber data: Yahoo Finance (utama) +
-Biquote (fallback otomatis, feed MT5 live — gratis, tanpa key) + XAUS
-(xaus.com, gratis tanpa key — emas saja, buat perbandingan).
+Screener multi-symbol tanpa API key. Sumber data: Biquote (feed MT5 live —
+gratis, tanpa key, **utama**) + XAUS (xaus.com, gratis tanpa key — emas
+saja, **kedua**) + Yahoo Finance (public, gratis — **terakhir**).
 
 ## Sumber data (`--source`)
 
 | Sumber | Cakupan | Catatan |
 |---|---|---|
-| Yahoo Finance (utama) | Semua 14 simbol, Daily 5 thn | Kadang rate-limit; M1 emas/perak kadang kosong |
-| Biquote (fallback) | Semua 14 simbol incl. DXY, 2.081 simbol total | 15.000 req/menit/IP, tanpa key; Daily ~19 bln, 1h ~7 hari, 4h ~41 hari; Weekly di-resample dari Daily; H4 pakai interval 4h native |
-| XAUS (perbandingan) | XAUUSD Daily 5 thn + spot XAU/XAG/BTC | 60 req/menit, tanpa key; history tanpa kolom open (disintesis dari close kemarin); forex/DXY tidak ada |
+| Biquote (utama) | Semua 14 simbol incl. DXY, 2.081 simbol total | 15.000 req/menit/IP, tanpa key; Daily ~19 bln, 1h ~7 hari, 4h ~41 hari; Weekly di-resample dari Daily; H4 pakai interval 4h native; tick live `GET /api/{symbol}` |
+| XAUS (kedua) | XAUUSD Daily 5 thn + spot XAU/XAG/BTC | 60 req/menit, tanpa key; history tanpa kolom open (disintesis dari close kemarin); forex/DXY tidak ada; cuma kepake kalau Biquote gagal (emas Daily) |
+| Yahoo Finance (terakhir) | Semua 14 simbol, Daily 5 thn | Dipakai terakhir kalau Biquote + XAUS gagal; kadang rate-limit; M1 emas/perak kadang kosong |
 
-Default `auto`: Yahoo dulu, gagal/terlalu sedikit -> Biquote. Yang dipakai
+Default `auto`: Biquote dulu, gagal/terlalu sedikit -> XAUS (emas Daily saja) -> Yahoo. Yang dipakai
 tercatat di output (`source` di JSON, baris "Sumber:" di MD/Telegram).
 
 ```bash

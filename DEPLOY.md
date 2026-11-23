@@ -63,7 +63,7 @@ Kekurangan: cron job cuma kirim di jam itu, nggak ada scan 30 menitan.
 | Log: `Telegram gagal (401)` | Token salah / sudah di-revoke. Buat ulang di @BotFather. |
 | Log: `Telegram gagal (400) chat not found` | Chat ID salah, atau kamu belum `/start` bot-nya. Buka bot, tap Start. |
 | Railway: service CrashLoop / "no port" | Bukan soal port — worker ini memang tidak buka port. Cek Logs: biasanya Variables belum diisi (token) atau build gagal. Jangan pasang domain/healthcheck. |
-| Yahoo gagal / data kosong | Yahoo kadang rate-limit. Screener otomatis fallback ke Biquote (`--source auto`, default) — cek baris "Sumber:" di pesan Telegram. Kalau mau paksa Yahoo saja, jalankan manual dengan `--source yahoo` setelah 10 menit. |
+| Biquote gagal / data kosong | Biquote kadang lambat dari IP Railway. Screener otomatis fallback ke XAUS (emas Daily saja) lalu Yahoo (`--source auto`, default) — cek baris "Sumber:" di pesan Telegram. Kalau mau paksa Biquote saja, jalankan manual dengan `--source biquote`. |
 | Pesan Telegram nggak masuk jam 07:00 | Cek `TELEGRAM_TIMES` dan TZ. Ingat: scheduler pakai WIB; Railway Cron pakai UTC. |
 
 ## Update kode nanti
