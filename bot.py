@@ -148,8 +148,13 @@ def handle_update(update):
         if ok:
             log("✅ Hasil on-demand terkirim.")
         else:
-            log(f"❌ Screener gagal: {err}")
-            send_text("❌ Maaf, screener gagal jalan. Coba /cek lagi sebentar lagi.")
+            log(f"❌ Screener gagal ({cmd}): {err}")
+            # Tampilkan detail error ke user (di-escape HTML) supaya kegagalan
+            # berikutnya bisa didiagnosis tanpa akses log Railway.
+            import html as _html
+            detail = _html.escape(err[-400:]) if err else "tidak ada detail"
+            send_text("❌ Maaf, screener gagal jalan. Coba /cek lagi sebentar lagi.\n\n"
+                      f"Detail: <code>{detail}</code>")
         return True
     if cmd is not None:  # perintah tidak dikenal
         send_text("Perintah itu belum ada. Coba /help untuk daftar perintah.")

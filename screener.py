@@ -95,6 +95,10 @@ SYMBOLS = {
 }
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Pip-Forex-Screener/1.0"}
+# Timeout per request: fail-fast supaya satu sumber yang nggantung tidak
+# menghabiskan jatah 300 detik bot Telegram (Yahoo/Biquote/XAUS normalnya
+# balas <2 detik; kalau >10 detik, anggap gagal -> fallback/coba sumber lain).
+REQ_TIMEOUT = 10
 
 # ---------------------------------------------------------------- sumber data
 # Yahoo = utama (Daily 5 thn, semua 14 simbol). Biquote = fallback gratis
@@ -173,7 +177,7 @@ def fetch_yahoo(ticker, interval, range_):
     """Return DataFrame OHLC atau None."""
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
     params = {"interval": interval, "range": range_, "includePrePost": "false"}
-    r = requests.get(url, params=params, headers=HEADERS, timeout=20)
+    r = requests.get(url, params=params, headers=HEADERS, timeout=REQ_TIMEOUT)
     r.raise_for_status()
     data = r.json()["chart"]["result"]
     if not data:
@@ -214,7 +218,7 @@ def fetch_biquote(symbol, interval, range_):
         return None
     r = requests.get(f"{BIQUOTE_BASE}/{symbol}/ohlc",
                      params={"interval": bq_iv, "limit": 500},
-                     headers=HEADERS, timeout=20)
+                     headers=HEADERS, timeout=REQ_TIMEOUT)
     r.raise_for_status()
     bars = (r.json() or {}).get("bars") or []
     if not bars:
@@ -238,7 +242,7 @@ def fetch_xaus_spot():
     Gratis tanpa key, 60 req/menit. Cuma tiga simbol ini yang ada spot-nya.
     """
     r = requests.get(f"{XAUS_BASE}/spot", params={"compact": "1"},
-                     headers=HEADERS, timeout=20)
+                     headers=HEADERS, timeout=REQ_TIMEOUT)
     r.raise_for_status()
     d = r.json() or {}
     out = {}
@@ -261,7 +265,7 @@ def fetch_xaus(symbol, interval, range_):
     """
     if symbol != "XAUUSD" or interval not in ("1d", "1wk"):
         return None
-    r = requests.get(f"{XAUS_BASE}/history", headers=HEADERS, timeout=20)
+    r = requests.get(f"{XAUS_BASE}/history", headers=HEADERS, timeout=REQ_TIMEOUT)
     r.raise_for_status()
     pts = (r.json() or {}).get("points") or []
     if len(pts) < 60:
