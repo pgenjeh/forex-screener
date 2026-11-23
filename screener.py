@@ -4,8 +4,9 @@ Pip Forex Screener — multi-symbol XAUUSD, XAGUSD, majors & crosses
 ====================================================================
 Tanpa API key. Sumber: Yahoo Finance Chart API (public, gratis) — utama;
   Biquote (feed MT5 live, gratis tanpa key) — fallback otomatis kalau Yahoo
-  gagal/rate-limit. Pilih manual: --source yahoo|biquote|auto (default auto),
-  atau env SCREENER_SOURCE.
+  gagal/rate-limit; XAUS (xaus.com, gratis tanpa key) — emas saja, buat
+  perbandingan. Pilih manual: --source yahoo|biquote|xaus|auto (default auto),
+  atau env SCREENER_SOURCE. Bandingkan ketiganya: --compare.
 
 Cara pakai:
   python3 screener.py                 # default: Top-Down semua symbol (W/D/H4/H1/M15 + SnR)
@@ -108,13 +109,19 @@ BIQUOTE_BASE = "https://biquote.io/api"
 BIQUOTE_INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
                      "60m": "1h", "1d": "1d", "4h": "4h"}
 SOURCES_USED = set()  # sumber yang benar-benar dipakai di run ini
+_SRC_NAMES = {"yahoo": "Yahoo Finance", "biquote": "Biquote (feed MT5)",
+              "xaus": "XAUS (xaus.com)"}
 
 def source_label():
     """Label sumber untuk output (MD/JSON/Telegram)."""
     if SOURCES_USED == {"biquote"}:
         return "Biquote (feed MT5)"
+    if SOURCES_USED == {"xaus"}:
+        return "XAUS (xaus.com)"
     if SOURCES_USED == {"yahoo", "biquote"}:
         return "Yahoo Finance + Biquote (fallback)"
+    if len(SOURCES_USED) > 1:
+        return " + ".join(_SRC_NAMES[s] for s in sorted(SOURCES_USED)) + " (campuran)"
     return "Yahoo Finance Chart API"
 
 # ---------------------------------------------------------------- helpers
@@ -223,22 +230,93 @@ def fetch_biquote(symbol, interval, range_):
     }).dropna(subset=["close"])
     return df if len(df) else None
 
+XAUS_BASE = "https://xaus.com/api/v1"
+
+def fetch_xaus_spot():
+    """Harga spot live XAUS: {XAUUSD, XAGUSD, BTCUSD} atau None.
+
+    Gratis tanpa key, 60 req/menit. Cuma tiga simbol ini yang ada spot-nya.
+    """
+    r = requests.get(f"{XAUS_BASE}/spot", params={"compact": "1"},
+                     headers=HEADERS, timeout=20)
+    r.raise_for_status()
+    d = r.json() or {}
+    out = {}
+    if d.get("spot_usd_oz") is not None:
+        out["XAUUSD"] = float(d["spot_usd_oz"])
+    if d.get("silver_usd_oz") is not None:
+        out["XAGUSD"] = float(d["silver_usd_oz"])
+    if d.get("btc_usd") is not None:
+        out["BTCUSD"] = float(d["btc_usd"])
+    return out or None
+
+def fetch_xaus(symbol, interval, range_):
+    """Return DataFrame OHLC Daily XAUUSD dari XAUS (/v1/history) atau None.
+
+    Cuma emas yang punya histori candle (daily OHLC 5 thn, tanpa open —
+    open disintesis dari close hari sebelumnya). Bar hari ini belum ada di
+    history (berhenti di close kemarin) -> ditambah forming bar dari spot
+    live. Perak/BTC cuma ada spot, tanpa histori -> None (lihat
+    fetch_xaus_spot). Forex/DXY tidak ada di XAUS -> None.
+    """
+    if symbol != "XAUUSD" or interval not in ("1d", "1wk"):
+        return None
+    r = requests.get(f"{XAUS_BASE}/history", headers=HEADERS, timeout=20)
+    r.raise_for_status()
+    pts = (r.json() or {}).get("points") or []
+    if len(pts) < 60:
+        return None
+    closes = [float(p["c"]) for p in pts]
+    opens = [closes[0]] + closes[:-1]  # open hari ini = close kemarin
+    df = pd.DataFrame({
+        "time": pd.to_datetime([p["d"] for p in pts], utc=True),
+        "open": opens,
+        "high": [float(p["h"]) for p in pts],
+        "low": [float(p["l"]) for p in pts],
+        "close": closes,
+        "volume": 0,
+    }).dropna(subset=["close"]).sort_values("time").reset_index(drop=True)
+    # Forming bar hari ini dari spot live (history berhenti di close kemarin).
+    try:
+        spot = fetch_xaus_spot()
+        today = datetime.now(timezone.utc).date()
+        last_day = df["time"].iloc[-1].date()
+        if spot and "XAUUSD" in spot and today > last_day:
+            px = spot["XAUUSD"]
+            prev = float(df["close"].iloc[-1])
+            df = pd.concat([df, pd.DataFrame([{
+                "time": pd.Timestamp(today, tz="UTC"),
+                "open": prev, "high": max(prev, px), "low": min(prev, px),
+                "close": px, "volume": 0,
+            }])], ignore_index=True)
+    except Exception:
+        pass  # spot gagal -> pakai history apa adanya
+    if interval == "1wk":
+        d = df.set_index("time").resample("W").agg(
+            {"open": "first", "high": "max", "low": "min",
+             "close": "last", "volume": "sum"})
+        return d.dropna().reset_index()
+    return df
+
 def fetch_data(symbol, interval, range_, source="auto"):
     """Ambil OHLC untuk satu simbol+TF.
 
     source: "auto" = Yahoo dulu, gagal/terlalu sedikit -> Biquote;
-    "yahoo"/"biquote" = paksa satu sumber. Sumber yang berhasil dicatat
-    di SOURCES_USED (dipakai label output).
+    "yahoo"/"biquote"/"xaus" = paksa satu sumber (xaus cuma emas Daily).
+    Sumber yang berhasil dicatat di SOURCES_USED (dipakai label output).
     """
     cfg = SYMBOLS[symbol]
     order = {"auto": ("yahoo", "biquote"),
-             "yahoo": ("yahoo",), "biquote": ("biquote",)}.get(source, ("yahoo", "biquote"))
+             "yahoo": ("yahoo",), "biquote": ("biquote",),
+             "xaus": ("xaus",)}.get(source, ("yahoo", "biquote"))
     for src in order:
         try:
             if src == "yahoo":
                 df = fetch_yahoo(cfg["yahoo"], interval, range_)
-            else:
+            elif src == "biquote":
                 df = fetch_biquote(symbol, interval, range_)
+            else:
+                df = fetch_xaus(symbol, interval, range_)
         except Exception as e:
             print(f"⚠️  {symbol} ({interval}): {src} gagal ({e})")
             df = None
@@ -921,6 +999,103 @@ def run_scalping(args, now):
             print(f"⚠️  Telegram gagal: {e}", file=sys.stderr)
 
 
+COMPARE_SYMBOLS = ["XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "DXY", "BTCUSD"]
+
+def _cmp_diff(a, b):
+    """Selisih % a vs b, atau '-'."""
+    if a is None or b is None or b == 0:
+        return "-"
+    return f"{(a / b - 1) * 100:+.2f}%"
+
+def run_compare(args, now):
+    """Bandingkan harga + analisa Daily dari Yahoo vs Biquote vs XAUS.
+
+    XAUS cuma punya emas (history Daily) + spot perak/BTC — selain itu "-".
+    Simpan output/compare_{stamp}.md + compare-latest.md (+ .json).
+    """
+    stamp = now.strftime("%Y-%m-%d_%H%M")
+    syms = args.symbols or COMPARE_SYMBOLS
+    try:
+        spot = fetch_xaus_spot()
+    except Exception as e:
+        print(f"⚠️  XAUS spot gagal ({e})")
+        spot = None
+    rows = []
+    for sym in syms:
+        sym = sym.upper()
+        if sym not in SYMBOLS:
+            print(f"⚠️  {sym} tidak dikenal, skip. Pilihan: {', '.join(SYMBOLS)}")
+            continue
+        cfg = SYMBOLS[sym]
+        rec = {"symbol": sym, "spot_xaus": (spot or {}).get(sym)}
+        for src in ("yahoo", "biquote", "xaus"):
+            try:
+                if src == "yahoo":
+                    df = fetch_yahoo(cfg["yahoo"], "1d", "5y")
+                elif src == "biquote":
+                    df = fetch_biquote(sym, "1d", "5y")
+                else:
+                    df = fetch_xaus(sym, "1d", "5y")
+            except Exception as e:
+                print(f"⚠️  {sym} ({src}): gagal ({e})")
+                df = None
+            rec[src] = analyse(sym, cfg, df) if df is not None and len(df) >= 60 else None
+        rows.append(rec)
+    if not rows:
+        print("Tidak ada data perbandingan.")
+        sys.exit(1)
+    # --- tabel harga ---
+    print(f"\n📊 Perbandingan sumber — {now.strftime('%d %b %Y %H:%M WIB')} (Daily)")
+    print(f"{'Symbol':8} {'Yahoo':>14} {'Biquote':>14} {'XAUS':>14} {'Bq-Yh':>8} {'XAUS-Yh':>8}")
+    md = [f"# Perbandingan Sumber Data — {now.strftime('%d %b %Y %H:%M WIB')}",
+          "",
+          "Daily (analisa: EMA/RSI/ATR/skor) + harga spot live. "
+          "XAUS cuma emas (history Daily) + spot perak/BTC; forex/DXY tidak ada di XAUS.",
+          "",
+          "| Symbol | Yahoo | Biquote | XAUS | Biquote vs Yahoo | XAUS vs Yahoo |",
+          "|---|---|---|---|---|---|"]
+    for rec in rows:
+        sym = rec["symbol"]
+        d = SYMBOLS[sym]["digits"]
+        yh, bq, xa = rec["yahoo"], rec["biquote"], rec["xaus"]
+        yh_p = yh["price"] if yh else None
+        bq_p = bq["price"] if bq else None
+        # Harga XAUS: dari analisa Daily (forming bar = spot) kalau ada,
+        # kalau tidak dari spot langsung.
+        xa_p = xa["price"] if xa else rec.get("spot_xaus")
+        f = lambda p: fmt_price(p, d) if p is not None else "-"
+        print(f"{sym:8} {f(yh_p):>14} {f(bq_p):>14} {f(xa_p):>14} "
+              f"{_cmp_diff(bq_p, yh_p):>8} {_cmp_diff(xa_p, yh_p):>8}")
+        md.append(f"| {sym} | {f(yh_p)} | {f(bq_p)} | {f(xa_p)} | "
+                  f"{_cmp_diff(bq_p, yh_p)} | {_cmp_diff(xa_p, yh_p)} |")
+    # --- tabel analisa ---
+    print(f"\n{'Symbol':8} {'Yahoo':>34} {'Biquote':>34} {'XAUS':>34}")
+    md += ["",
+           "| Symbol | Yahoo (RSI, skor, sinyal) | Biquote (RSI, skor, sinyal) | XAUS (RSI, skor, sinyal) |",
+           "|---|---|---|---|"]
+    for rec in rows:
+        sym = rec["symbol"]
+        cells = []
+        for src in ("yahoo", "biquote", "xaus"):
+            r = rec[src]
+            cells.append(f"RSI {r['rsi14']} ({r['rsi_tag']}), {r['score']:+d}, {r['signal']}" if r else "-")
+        print(f"{sym:8} {cells[0]:>34} {cells[1]:>34} {cells[2]:>34}")
+        md.append(f"| {sym} | {cells[0]} | {cells[1]} | {cells[2]} |")
+    md += ["",
+           "Catatan: Biquote = spot MT5, Yahoo = futures (GC=F/SI=F) — emas Biquote "
+           "biasanya ~$2-10 di bawah Yahoo. XAUS = spot emas + spot perak/BTC.",
+           "Selisih kecil (<0.5%) di forex/DXY = wajar (beda feed & waktu ambil, beda hitungan detik)."]
+    if args.out in ("all", "md"):
+        (OUT / f"compare_{stamp}.md").write_text("\n".join(md))
+        (OUT / "compare-latest.md").write_text("\n".join(md))
+    if args.out in ("all", "json"):
+        payload = {"generated_wib": now.isoformat(), "mode": "compare", "data": rows}
+        (OUT / f"compare_{stamp}.json").write_text(json.dumps(payload, indent=2))
+        (OUT / "compare-latest.json").write_text(json.dumps(payload, indent=2))
+    if args.out in ("all", "md", "json"):
+        print(f"\n💾 Tersimpan di {OUT}/  (compare_{stamp}.* + compare-latest.*)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["topdown", "scalping"], default="topdown",
@@ -934,10 +1109,14 @@ def main():
                     help="kirim ringkasan ke Telegram (env TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)")
     ap.add_argument("--telegram-file", action="store_true",
                     help="ikut kirim output/latest.md sebagai file Telegram")
-    ap.add_argument("--source", choices=["auto", "yahoo", "biquote"],
+    ap.add_argument("--source", choices=["auto", "yahoo", "biquote", "xaus"],
                     default=os.environ.get("SCREENER_SOURCE", "auto"),
                     help="sumber data: auto = Yahoo dulu, gagal -> Biquote "
-                         "(default); yahoo/biquote = paksa satu sumber")
+                         "(default); yahoo/biquote/xaus = paksa satu sumber "
+                         "(xaus cuma emas, Daily)")
+    ap.add_argument("--compare", action="store_true",
+                    help="bandingkan Yahoo vs Biquote vs XAUS (Daily + spot live), "
+                         "bukan screener biasa")
     args = ap.parse_args()
 
     if pd is None:
@@ -946,7 +1125,15 @@ def main():
 
     now = datetime.now(WIB)
     if args.symbols is None:
-        args.symbols = list(SYMBOLS.keys()) if args.mode == "topdown" else list(SCALP_SYMBOLS)
+        if args.compare:
+            args.symbols = list(COMPARE_SYMBOLS)
+        elif args.mode == "topdown":
+            args.symbols = list(SYMBOLS.keys())
+        else:
+            args.symbols = list(SCALP_SYMBOLS)
+    if args.compare:
+        run_compare(args, now)
+        return
     if args.mode == "scalping":
         run_scalping(args, now)
         return

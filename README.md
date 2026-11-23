@@ -1,7 +1,8 @@
 # Pip Forex Screener — XAUUSD, XAGUSD & Majors
 
 Screener multi-symbol tanpa API key. Sumber data: Yahoo Finance (utama) +
-Biquote (fallback otomatis, feed MT5 live — gratis, tanpa key).
+Biquote (fallback otomatis, feed MT5 live — gratis, tanpa key) + XAUS
+(xaus.com, gratis tanpa key — emas saja, buat perbandingan).
 
 ## Sumber data (`--source`)
 
@@ -9,6 +10,7 @@ Biquote (fallback otomatis, feed MT5 live — gratis, tanpa key).
 |---|---|---|
 | Yahoo Finance (utama) | Semua 14 simbol, Daily 5 thn | Kadang rate-limit; M1 emas/perak kadang kosong |
 | Biquote (fallback) | Semua 14 simbol incl. DXY, 2.081 simbol total | 15.000 req/menit/IP, tanpa key; Daily ~19 bln, 1h ~7 hari, 4h ~41 hari; Weekly di-resample dari Daily; H4 pakai interval 4h native |
+| XAUS (perbandingan) | XAUUSD Daily 5 thn + spot XAU/XAG/BTC | 60 req/menit, tanpa key; history tanpa kolom open (disintesis dari close kemarin); forex/DXY tidak ada |
 
 Default `auto`: Yahoo dulu, gagal/terlalu sedikit -> Biquote. Yang dipakai
 tercatat di output (`source` di JSON, baris "Sumber:" di MD/Telegram).
@@ -17,12 +19,22 @@ tercatat di output (`source` di JSON, baris "Sumber:" di MD/Telegram).
 python3 screener.py --source auto      # default
 python3 screener.py --source biquote   # paksa Biquote (mis. Yahoo rate-limit)
 python3 screener.py --source yahoo     # paksa Yahoo
+python3 screener.py --source xaus --symbols XAUUSD   # paksa XAUS (emas, Daily saja)
 SCREENER_SOURCE=biquote python3 screener.py   # sama, via env
 ```
 
-Harga Biquote = spot MT5, Yahoo = futures (GC=F/SI=F): emas bisa beda ~$2-10,
-forex/DXY praktis identik (diuji 23 Nov 2026: skor & sinyal Daily sama di
-kedua sumber untuk 7 simbol utama).
+## Bandingkan sumber (`--compare`)
+
+Satu command buat bandingin ketiganya sekaligus — harga + analisa Daily
+(RSI/skor/sinyal) Yahoo vs Biquote vs XAUS, plus selisih %-nya:
+
+```bash
+python3 screener.py --compare                          # 7 simbol utama
+python3 screener.py --compare --symbols XAUUSD XAGUSD  # simbol tertentu
+```
+
+Hasil: `output/compare-latest.md` (+ `.json`). XAUS di tabel cuma muncul
+buat XAUUSD (Daily lengkap), XAGUSD/BTCUSD (harga spot saja), sisanya "-".
 
 ## Yang di-scan (14 symbol)
 
