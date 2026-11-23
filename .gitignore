@@ -11,3 +11,6 @@ venv/
 # Output & log lokal (di Railway ini ephemeral anyway)
 output/
 logs/
+
+# Graphify: cache + hasil analisis lokal, jangan masuk repo
+graphify-out/
