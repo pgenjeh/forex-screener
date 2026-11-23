@@ -117,7 +117,7 @@ def _td_line(td):
             f"   S {sup} • R {res} — {status}")
 
 
-def build_message(all_rows, now_str, topdown=None):
+def build_message(all_rows, now_str, topdown=None, source=None):
     """Bangun pesan ringkas dari hasil screener (dict Daily/H1 -> rows),
     plus blok Top-Down & SnR kalau data topdown tersedia."""
     lines = [f"<b>📊 Forex Screener — {now_str}</b>", ""]
@@ -174,11 +174,11 @@ def build_message(all_rows, now_str, topdown=None):
                 f"RSI {r['rsi14']} • {r['signal']}"
             )
     lines.append("")
-    lines.append("Sumber: Yahoo Finance. Bukan saran trading — oversold ≠ sinyal buy.")
+    lines.append(f"Sumber: {source or 'Yahoo Finance'}. Bukan saran trading — oversold ≠ sinyal buy.")
     return "\n".join(lines)
 
 
-def build_scalp_message(rows, sessions, now_str):
+def build_scalp_message(rows, sessions, now_str, source=None):
     """Pesan ringkas mode scalping untuk Telegram."""
     lines = [f"<b>⚡ Scalp Mode — {now_str}</b>",
              f"Sesi aktif: {', '.join(sessions)} (WIB)", ""]
@@ -215,6 +215,8 @@ def build_scalp_message(rows, sessions, now_str):
             lines.append(f"   S/R M15: {' • '.join(sr)}")
     lines.append("")
     lines.append("Trigger: cross Stochastic di M5, trend M15/H1/D1 searah. Bukan saran trading.")
+    if source:
+        lines.append(f"Sumber: {source}.")
     return "\n".join(lines)
 
 
@@ -245,7 +247,7 @@ def main():
     if latest.exists():
         data = json.loads(latest.read_text())
         msg = build_message(data.get("data", {}), data.get("generated_wib", ""),
-                            data.get("topdown"))
+                            data.get("topdown"), source=data.get("source"))
         ok = send_text(msg, token, chat_id)
         sys.exit(0 if ok else 1)
     print("Tidak ada output/latest.json — jalankan screener.py dulu.", file=sys.stderr)

@@ -1,6 +1,28 @@
 # Pip Forex Screener — XAUUSD, XAGUSD & Majors
 
-Screener multi-symbol tanpa API key, sumber Yahoo Finance (gratis).
+Screener multi-symbol tanpa API key. Sumber data: Yahoo Finance (utama) +
+Biquote (fallback otomatis, feed MT5 live — gratis, tanpa key).
+
+## Sumber data (`--source`)
+
+| Sumber | Cakupan | Catatan |
+|---|---|---|
+| Yahoo Finance (utama) | Semua 14 simbol, Daily 5 thn | Kadang rate-limit; M1 emas/perak kadang kosong |
+| Biquote (fallback) | Semua 14 simbol incl. DXY, 2.081 simbol total | 15.000 req/menit/IP, tanpa key; Daily ~19 bln, 1h ~7 hari, 4h ~41 hari; Weekly di-resample dari Daily; H4 pakai interval 4h native |
+
+Default `auto`: Yahoo dulu, gagal/terlalu sedikit -> Biquote. Yang dipakai
+tercatat di output (`source` di JSON, baris "Sumber:" di MD/Telegram).
+
+```bash
+python3 screener.py --source auto      # default
+python3 screener.py --source biquote   # paksa Biquote (mis. Yahoo rate-limit)
+python3 screener.py --source yahoo     # paksa Yahoo
+SCREENER_SOURCE=biquote python3 screener.py   # sama, via env
+```
+
+Harga Biquote = spot MT5, Yahoo = futures (GC=F/SI=F): emas bisa beda ~$2-10,
+forex/DXY praktis identik (diuji 23 Nov 2026: skor & sinyal Daily sama di
+kedua sumber untuk 7 simbol utama).
 
 ## Yang di-scan (14 symbol)
 
@@ -78,9 +100,12 @@ Lihat `DEPLOY.md` — ringkasnya:
 
 - Harga Yahoo (GC=F/SI=F) adalah futures proxy untuk spot XAU/XAG — untuk
   eksekusi, tetap cek harga broker kamu (spread bisa beda beberapa dolar).
+  Harga Biquote adalah spot MT5 (emas ~$2-10 di bawah futures Yahoo).
 - Bukan saran trading. Screener hanya filter: konfirmasi dengan struktur
   market, S/R, dan news (DXY, Fed, CPI) sebelum entry.
-- Yahoo kadang rate-limit kalau dipanggil terlalu sering — interval 30 menit aman.
+- Yahoo kadang rate-limit kalau dipanggil terlalu sering — interval 30 menit
+  aman. Kalau Yahoo gagal, screener otomatis pindah ke Biquote (`--source auto`).
+  Paksa sumber tertentu dengan `--source yahoo|biquote`.
 
 ## Cek kapan saja lewat Telegram
 

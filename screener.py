@@ -2,8 +2,10 @@
 """
 Pip Forex Screener — multi-symbol XAUUSD, XAGUSD, majors & crosses
 ====================================================================
-Tanpa API key. Sumber: Yahoo Finance Chart API (public, gratis)
-  https://query1.finance.yahoo.com/v8/finance/chart/<TICKER>
+Tanpa API key. Sumber: Yahoo Finance Chart API (public, gratis) — utama;
+  Biquote (feed MT5 live, gratis tanpa key) — fallback otomatis kalau Yahoo
+  gagal/rate-limit. Pilih manual: --source yahoo|biquote|auto (default auto),
+  atau env SCREENER_SOURCE.
 
 Cara pakai:
   python3 screener.py                 # default: Top-Down semua symbol (W/D/H4/H1/M15 + SnR)
@@ -93,6 +95,28 @@ SYMBOLS = {
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Pip-Forex-Screener/1.0"}
 
+# ---------------------------------------------------------------- sumber data
+# Yahoo = utama (Daily 5 thn, semua 14 simbol). Biquote = fallback gratis
+# tanpa key (feed MT5 live, 15.000 req/menit/IP, 2.081 simbol incl. DXY) —
+# dipakai kalau Yahoo gagal/rate-limit. Biquote tidak punya interval 1w
+# (di-resample dari Daily) dan retensi tiap interval terbatas: Daily ~500 bar
+# (~19 bln), 1h ~169 bar (~7 hari) — jadi H4 dari resample 1h Biquote
+# terlalu pendek, dipakai interval 4h native Biquote sebagai gantinya.
+# Harga Biquote = spot MT5, Yahoo = futures (GC=F/SI=F): emas bisa beda
+# ~$3-10, forex/DXY praktis identik.
+BIQUOTE_BASE = "https://biquote.io/api"
+BIQUOTE_INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+                     "60m": "1h", "1d": "1d", "4h": "4h"}
+SOURCES_USED = set()  # sumber yang benar-benar dipakai di run ini
+
+def source_label():
+    """Label sumber untuk output (MD/JSON/Telegram)."""
+    if SOURCES_USED == {"biquote"}:
+        return "Biquote (feed MT5)"
+    if SOURCES_USED == {"yahoo", "biquote"}:
+        return "Yahoo Finance + Biquote (fallback)"
+    return "Yahoo Finance Chart API"
+
 # ---------------------------------------------------------------- helpers
 def ema(series, n):
     return series.ewm(span=n, adjust=False).mean()
@@ -158,6 +182,73 @@ def fetch_yahoo(ticker, interval, range_):
     }).dropna(subset=["close"])
     return df
 
+def fetch_biquote(symbol, interval, range_):
+    """Return DataFrame OHLC dari Biquote (feed MT5, gratis tanpa key) atau None.
+
+    Respons Biquote newest-first -> diurutkan menaik. Bar terakhir = candle
+    forming (isOpen=true), sama seperti Yahoo, jadi analyse/MSNR/CRT yang
+    memang mengabaikan bar terakhir tetap konsisten.
+
+    Retensi Biquote (bukan limit request): Daily ~500 bar (~19 bln),
+    1h ~169 bar (~7 hari), 4h ~181 bar (~41 hari); 15m/5m/1m cukup untuk
+    kebutuhan screener. Daily 5y -> yang didapat ~19 bln terakhir.
+    """
+    if interval == "1wk":
+        # Biquote tidak punya interval mingguan -> resample dari Daily.
+        df = fetch_biquote(symbol, "1d", range_)
+        if df is None or len(df) < 60:
+            return None
+        d = df.set_index("time").resample("W").agg(
+            {"open": "first", "high": "max", "low": "min",
+             "close": "last", "volume": "sum"})
+        return d.dropna().reset_index()
+    bq_iv = BIQUOTE_INTERVALS.get(interval)
+    if bq_iv is None:
+        return None
+    r = requests.get(f"{BIQUOTE_BASE}/{symbol}/ohlc",
+                     params={"interval": bq_iv, "limit": 500},
+                     headers=HEADERS, timeout=20)
+    r.raise_for_status()
+    bars = (r.json() or {}).get("bars") or []
+    if not bars:
+        return None
+    bars = sorted(bars, key=lambda b: b["openTime"])
+    df = pd.DataFrame({
+        "time": pd.to_datetime([b["openTime"] for b in bars], utc=True),
+        "open": [b.get("open") for b in bars],
+        "high": [b.get("high") for b in bars],
+        "low": [b.get("low") for b in bars],
+        "close": [b.get("close") for b in bars],
+        "volume": [b.get("tickVolume", 0) for b in bars],
+    }).dropna(subset=["close"])
+    return df if len(df) else None
+
+def fetch_data(symbol, interval, range_, source="auto"):
+    """Ambil OHLC untuk satu simbol+TF.
+
+    source: "auto" = Yahoo dulu, gagal/terlalu sedikit -> Biquote;
+    "yahoo"/"biquote" = paksa satu sumber. Sumber yang berhasil dicatat
+    di SOURCES_USED (dipakai label output).
+    """
+    cfg = SYMBOLS[symbol]
+    order = {"auto": ("yahoo", "biquote"),
+             "yahoo": ("yahoo",), "biquote": ("biquote",)}.get(source, ("yahoo", "biquote"))
+    for src in order:
+        try:
+            if src == "yahoo":
+                df = fetch_yahoo(cfg["yahoo"], interval, range_)
+            else:
+                df = fetch_biquote(symbol, interval, range_)
+        except Exception as e:
+            print(f"⚠️  {symbol} ({interval}): {src} gagal ({e})")
+            df = None
+        if df is not None and len(df) >= 60:
+            SOURCES_USED.add(src)
+            return df
+        if df is not None:
+            print(f"⚠️  {symbol} ({interval}): {src} cuma {len(df)} bar, coba sumber lain...")
+    return None
+
 def analyse(symbol, cfg, df):
     if df is None or len(df) < 60:
         return None
@@ -217,7 +308,8 @@ def analyse(symbol, cfg, df):
     }
 
 def resample_4h(df):
-    """Gabung candle 1H menjadi 4H (Yahoo tidak punya interval 4H)."""
+    """Gabung candle 1H menjadi 4H (Yahoo tidak punya interval 4H; Biquote
+    punya, tapi resample dipakai biar H4 konsisten di semua sumber)."""
     if df is None or len(df) < 80:
         return None
     d = df.set_index("time").resample("4h").agg(
@@ -761,11 +853,11 @@ def run_scalping(args, now):
         cfg = SYMBOLS[sym]
         try:
             dfs = {
-                "M1": fetch_yahoo(cfg["yahoo"], "1m", "1d"),
-                "M5": fetch_yahoo(cfg["yahoo"], "5m", "5d"),
-                "M15": fetch_yahoo(cfg["yahoo"], "15m", "5d"),
-                "H1": fetch_yahoo(cfg["yahoo"], "60m", "1mo"),
-                "D1": fetch_yahoo(cfg["yahoo"], "1d", "1y"),
+                "M1": fetch_data(sym, "1m", "1d", args.source),
+                "M5": fetch_data(sym, "5m", "5d", args.source),
+                "M15": fetch_data(sym, "15m", "5d", args.source),
+                "H1": fetch_data(sym, "60m", "1mo", args.source),
+                "D1": fetch_data(sym, "1d", "1y", args.source),
             }
         except Exception as e:
             print(f"⚠️  {sym}: gagal ambil data ({e})")
@@ -803,7 +895,7 @@ def run_scalping(args, now):
             row["msnr_m15"] = msnr_m15 or {}
             rows.append(row)
     if not rows:
-        print("Tidak ada data scalping. Cek internet / Yahoo Finance.")
+        print("Tidak ada data scalping. Cek internet / sumber data.")
         sys.exit(1)
     if args.out in ("all", "console"):
         print_scalp(rows, sessions, now)
@@ -814,14 +906,15 @@ def run_scalping(args, now):
         print(f"\n💾 Tersimpan di {OUT}/  (scalp_{stamp}.md + scalp-latest.md)")
     if args.out in ("all", "json"):
         payload = {"generated_wib": now.isoformat(), "mode": "scalping",
-                   "sessions": sessions, "source": "Yahoo Finance Chart API",
+                   "sessions": sessions, "source": source_label(),
                    "data": rows}
         (OUT / f"scalp_{stamp}.json").write_text(json.dumps(payload, indent=2))
         (OUT / "scalp-latest.json").write_text(json.dumps(payload, indent=2))
     if args.telegram:
         try:
             from telegram_notify import build_scalp_message, send_text
-            msg = build_scalp_message(rows, sessions, now.strftime('%d %b %Y %H:%M WIB'))
+            msg = build_scalp_message(rows, sessions, now.strftime('%d %b %Y %H:%M WIB'),
+                                      source=source_label())
             print("\n📩 Mengirim ke Telegram...")
             send_text(msg)
         except Exception as e:
@@ -841,6 +934,10 @@ def main():
                     help="kirim ringkasan ke Telegram (env TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)")
     ap.add_argument("--telegram-file", action="store_true",
                     help="ikut kirim output/latest.md sebagai file Telegram")
+    ap.add_argument("--source", choices=["auto", "yahoo", "biquote"],
+                    default=os.environ.get("SCREENER_SOURCE", "auto"),
+                    help="sumber data: auto = Yahoo dulu, gagal -> Biquote "
+                         "(default); yahoo/biquote = paksa satu sumber")
     args = ap.parse_args()
 
     if pd is None:
@@ -878,20 +975,27 @@ def main():
         dfs = {}
         try:
             if "Weekly" in wanted:
-                dfs["Weekly"] = fetch_yahoo(cfg["yahoo"], "1wk", "5y")
+                dfs["Weekly"] = fetch_data(sym, "1wk", "5y", args.source)
             if "Daily" in wanted:
                 # 5 tahun: SnR butuh histori panjang (harga sedang di low 1 tahun,
                 # support terdekat bisa berasal dari struktur lama).
-                dfs["Daily"] = fetch_yahoo(cfg["yahoo"], "1d", "5y")
+                dfs["Daily"] = fetch_data(sym, "1d", "5y", args.source)
             if "H4" in wanted or "H1" in wanted:
-                df60 = fetch_yahoo(cfg["yahoo"], "60m", "1mo")
+                df60 = fetch_data(sym, "60m", "1mo", args.source)
                 if df60 is not None:
                     if "H4" in wanted:
                         dfs["H4"] = resample_4h(df60)
+                        if (dfs["H4"] is None or len(dfs["H4"]) < 60) and args.source in ("auto", "biquote"):
+                            # Biquote 1h cuma ~7 hari -> H4 resample < 60 bar.
+                            # Pakai interval 4h native Biquote (Yahoo tidak punya 4h).
+                            h4_native = fetch_biquote(sym, "4h", "1mo")
+                            if h4_native is not None and len(h4_native) >= 60:
+                                dfs["H4"] = h4_native
+                                SOURCES_USED.add("biquote")
                     if "H1" in wanted:
                         dfs["H1"] = df60.tail(150).reset_index(drop=True)
             if "M15" in wanted:
-                dfs["M15"] = fetch_yahoo(cfg["yahoo"], "15m", "5d")
+                dfs["M15"] = fetch_data(sym, "15m", "5d", args.source)
         except Exception as e:
             print(f"⚠️  {sym}: gagal ambil data ({e})")
             continue
@@ -957,7 +1061,7 @@ def main():
         topdown[sym]["crt"] = crt
 
     if not all_rows:
-        print("Tidak ada data. Cek internet / Yahoo Finance.")
+        print("Tidak ada data. Cek internet / sumber data.")
         sys.exit(1)
 
     # --- tampilkan tabel per TF ---
@@ -989,13 +1093,15 @@ def main():
                 w = csv.DictWriter(f, fieldnames=list(flat[0].keys()))
                 w.writeheader(); w.writerows(flat)
         if args.out in ("all", "json"):
-            payload = {"generated_wib": now.isoformat(), "source": "Yahoo Finance Chart API",
+            payload = {"generated_wib": now.isoformat(), "source": source_label(),
                        "data": all_rows, "topdown": topdown}
             (OUT / f"screener_{stamp}.json").write_text(json.dumps(payload, indent=2))
             (OUT / "latest.json").write_text(json.dumps(payload, indent=2))
         if args.out in ("all", "md"):
+            src_note = ("Yahoo Finance (GC=F, SI=F, EURUSD=X, dst)" if SOURCES_USED == {"yahoo"}
+                        else source_label())
             lines = [f"# Forex Screener — {now.strftime('%d %b %Y %H:%M WIB')}",
-                     "", "Sumber: Yahoo Finance (GC=F, SI=F, EURUSD=X, dst). Bukan saran trading.",
+                     "", f"Sumber: {src_note}. Bukan saran trading.",
                      "", "## Top-Down & SnR",
                      "Bias = skor tertimbang W30/D30/H4 20/H1 10/M15 10. "
                      "S/R = pivot Daily (touches = jumlah pengujian level).",
@@ -1043,7 +1149,8 @@ def main():
     if args.telegram:
         try:
             from telegram_notify import build_message, send_text, send_file
-            msg = build_message(all_rows, now.strftime('%d %b %Y %H:%M WIB'), topdown)
+            msg = build_message(all_rows, now.strftime('%d %b %Y %H:%M WIB'), topdown,
+                                source=source_label())
             print("\n📩 Mengirim ke Telegram...")
             send_text(msg)
             if args.telegram_file:
